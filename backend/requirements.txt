@@ -1,0 +1,49 @@
+# ── Web Framework ─────────────────────────────────────────────────────────
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+python-multipart==0.0.12      # file uploads
+
+# ── Database ──────────────────────────────────────────────────────────────
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.30.0               # async postgres driver
+psycopg2-binary==2.9.10       # sync driver for alembic
+alembic==1.14.0
+
+# ── Async / Tasks ─────────────────────────────────────────────────────────
+celery[redis]==5.4.0
+redis==5.2.1
+
+# ── Validation & Config ───────────────────────────────────────────────────
+pydantic==2.10.3
+pydantic-settings==2.6.1
+
+# ── LLM / Embeddings ──────────────────────────────────────────────────────
+openai==1.57.2                 # OpenAI SDK (used for OpenRouter too)
+tiktoken==0.8.0               # token counting
+
+# ── Vector Search ─────────────────────────────────────────────────────────
+faiss-cpu==1.9.0
+
+# ── PDF / Document Ingestion ──────────────────────────────────────────────
+pymupdf==1.25.1               # fitz — primary PDF reader
+pdfplumber==0.11.4            # table extraction fallback
+pdf2image==1.17.0             # PDF → PIL images for OCR (needs poppler system package)
+pytesseract==0.3.13           # OCR wrapper (needs tesseract-ocr system package)
+Pillow==11.0.0                # image preprocessing
+opencv-python-headless==4.10.0.84  # image processing
+
+# ── Utilities ─────────────────────────────────────────────────────────────
+python-dotenv==1.0.1
+structlog==24.4.0
+httpx==0.28.0                 # async HTTP client
+tenacity==9.0.0               # retry logic
+python-jose[cryptography]==3.3.0  # JWT (future auth)
+passlib[bcrypt]==1.7.4        # password hashing (future auth)
+
+# ── Dev / Test ────────────────────────────────────────────────────────────
+pytest==8.3.4
+pytest-asyncio==0.24.0
+pytest-cov==6.0.0
+httpx==0.28.0                 # also used for TestClient
+factory-boy==3.3.1
+faker==33.1.0

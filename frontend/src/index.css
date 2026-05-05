@@ -1,0 +1,264 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap");
+
+@import "tailwindcss";
+@config "../tailwind.config.js";
+
+/* VAJANS — Theme CSS Variables */
+
+/* DARK MODE (default) */
+:root {
+  --bg-primary: #0b0f1a;
+  --bg-secondary: #111827;
+  --bg-tertiary: #1c2333;
+  --bg-hover: #1f2937;
+  --border-subtle: #1e2a3b;
+  --border-active: #2d3f57;
+  --text-primary: #f9fafb;
+  --text-secondary: #9ca3af;
+  --text-tertiary: #6b7280;
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-muted: #1e3a5f;
+  --accent-text: #60a5fa;
+  --card-bg: #111827;
+  --sidebar-bg: #0b0f1a;
+  --topbar-bg: #111827;
+  --chart-grid: #1e2a3b;
+  --chart-axis: #6b7280;
+  --tooltip-bg: #1c2333;
+  --tooltip-border: #2d3f57;
+  --input-bg: #1c2333;
+  --input-border: #2d3f57;
+  --table-header: #0b0f1a;
+  --table-row: #111827;
+  --table-row-hover: #1c2333;
+  --scrollbar-track: #111827;
+  --scrollbar-thumb: #2d3f57;
+  color-scheme: dark;
+}
+
+/* LIGHT MODE */
+.light {
+  --bg-primary: #f8fafc;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #f1f5f9;
+  --bg-hover: #e2e8f0;
+  --border-subtle: #e2e8f0;
+  --border-active: #cbd5e1;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-tertiary: #94a3b8;
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-muted: #dbeafe;
+  --accent-text: #1d4ed8;
+  --card-bg: #ffffff;
+  --sidebar-bg: #1e293b;
+  --topbar-bg: #ffffff;
+  --chart-grid: #e2e8f0;
+  --chart-axis: #64748b;
+  --tooltip-bg: #ffffff;
+  --tooltip-border: #e2e8f0;
+  --input-bg: #f8fafc;
+  --input-border: #e2e8f0;
+  --table-header: #f8fafc;
+  --table-row: #ffffff;
+  --table-row-hover: #f1f5f9;
+  --scrollbar-track: #f1f5f9;
+  --scrollbar-thumb: #cbd5e1;
+  color-scheme: light;
+}
+
+/* Verdict colors — same in both modes */
+:root,
+.light {
+  --pass-bg: #064e3b;
+  --pass-text: #d1fae5;
+  --pass-solid: #059669;
+  --fail-bg: #450a0a;
+  --fail-text: #fca5a5;
+  --fail-solid: #dc2626;
+  --uncertain-bg: #451a03;
+  --uncertain-text: #fcd34d;
+  --uncertain-solid: #d97706;
+  --review-bg: #2e1065;
+  --review-text: #c4b5fd;
+  --review-solid: #7c3aed;
+}
+
+/* Apply CSS variables everywhere */
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family:
+    Inter,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition:
+    background-color 0.2s,
+    color 0.2s;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* Custom Components */
+@layer components {
+  .skeleton {
+    background-color: var(--bg-tertiary);
+    border-radius: 4px;
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+
+  .spin {
+    animation: spin 1s linear infinite;
+  }
+
+  .pulse-dot {
+    animation: pulse-dot 1.5s ease-in-out infinite;
+  }
+
+  .fade-in {
+    animation: fade-in 0.2s ease-out forwards;
+  }
+
+  .expand {
+    animation: expand 0.25s ease-out forwards;
+    overflow: hidden;
+  }
+}
+
+/* Animations */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(1.2);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes expand {
+  from {
+    max-height: 0;
+    opacity: 0;
+  }
+  to {
+    max-height: 1000px;
+    opacity: 1;
+  }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-active);
+}
+
+/* Focus ring */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Remove button default */
+button {
+  cursor: pointer;
+  font-family: inherit;
+}
+
+/* Table reset */
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+/* Link */
+a {
+  color: var(--accent-text);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+/* Input base */
+input,
+textarea,
+select {
+  background-color: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.875rem;
+  padding: 8px 12px;
+  outline: none;
+  transition: border-color 0.15s ease;
+  box-sizing: border-box;
+}
+input:focus,
+textarea:focus,
+select:focus {
+  border-color: var(--accent);
+}
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-tertiary);
+}
+select option {
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+/* Recharts: let ResponsiveContainer measure its own parent.
+   We control overflow/sizing via the card/chartSlot wrappers instead. */
