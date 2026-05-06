@@ -72,7 +72,11 @@ async def get_job_criteria(
         raise HTTPException(status_code=404, detail="Job not found")
 
     result = await db.execute(
-        select(CriterionDB).where(CriterionDB.job_id == job_id)
+        select(CriterionDB)
+        .where(CriterionDB.job_id == job_id)
+        # Stable order: (criterion_key, id) -- criterion_key is the
+        # logical, data-derived identifier; id breaks any remaining ties.
+        .order_by(CriterionDB.criterion_key.asc(), CriterionDB.id.asc())
     )
     criteria = result.scalars().all()
 
@@ -146,7 +150,11 @@ async def get_evaluation_results(
     rows = (await db.execute(
         select(EvaluationResult)
         .where(EvaluationResult.job_id == job_id)
-        .order_by(EvaluationResult.created_at.asc())
+        # Deterministic ordering: created_at ties resolved by id (UUID).
+        # Without the id tiebreak, multiple rows inserted in a single
+        # transaction share an identical timestamp and Postgres returns
+        # them in arbitrary order — making downstream dedup non-deterministic.
+        .order_by(EvaluationResult.created_at.asc(), EvaluationResult.id.asc())
     )).scalars().all()
 
     empty_response = {
@@ -177,13 +185,20 @@ async def get_evaluation_results(
         file_map = {str(f.id): f for f in file_rows}
 
     # ── Deduplicate: latest per (bidder, criterion) ───────────────────────
+    # rows are already sorted by (created_at asc, id asc); the dict overwrite
+    # therefore retains the LATEST row deterministically (same id wins on ties).
     latest_map: dict[tuple, EvaluationResult] = {}
     for r in rows:
         key = (str(r.bidder_file_id) if r.bidder_file_id else None,
                str(r.criterion_id))
         latest_map[key] = r
 
-    deduped = list(latest_map.values())
+    # Sort deduped list by (bidder_file_id, criterion_id) for stable iteration.
+    deduped = sorted(
+        latest_map.values(),
+        key=lambda r: (str(r.bidder_file_id) if r.bidder_file_id else "",
+                       str(r.criterion_id)),
+    )
 
     # ── Group by bidder ───────────────────────────────────────────────────
     by_bidder: dict[str | None, list[EvaluationResult]] = {}
@@ -192,7 +207,17 @@ async def get_evaluation_results(
         by_bidder.setdefault(fid, []).append(r)
 
     bidder_summaries = []
-    for fid_str, bidder_rows in by_bidder.items():
+    # Iterate bidders in stable order (file name, then id) so that the response
+    # array is deterministic across runs regardless of dict insertion order.
+    sorted_bidder_keys = sorted(
+        by_bidder.keys(),
+        key=lambda fid: (
+            (file_map[fid].original_name if fid and fid in file_map else ""),
+            fid or "",
+        ),
+    )
+    for fid_str in sorted_bidder_keys:
+        bidder_rows = by_bidder[fid_str]
         disqualified = any(
             r.verdict == "fail"
             and str(r.criterion_id) in crit_map
@@ -204,6 +229,17 @@ async def get_evaluation_results(
         b_score = round(total_w / max_w, 4) if max_w > 0 else 0.0
         b_verd  = [r.verdict for r in bidder_rows]
         f       = file_map.get(fid_str) if fid_str else None
+        # Disqualification reasons (failed mandatory criteria) — sorted by label
+        # for deterministic presentation.
+        disq_reasons = sorted([
+            crit_map[str(r.criterion_id)].label
+            for r in bidder_rows
+            if r.verdict == "fail"
+            and str(r.criterion_id) in crit_map
+            and crit_map[str(r.criterion_id)].mandatory
+        ])
+        # Sort the per-bidder results list by criterion_id for stable output.
+        sorted_bidder_rows = sorted(bidder_rows, key=lambda r: str(r.criterion_id))
         bidder_summaries.append({
             "bidder_file_id": fid_str,
             "bidder_name":    f.original_name if f else "Unknown",
@@ -215,7 +251,8 @@ async def get_evaluation_results(
                 "fail":    b_verd.count("fail"),
                 "unknown": b_verd.count("unknown"),
             },
-            "results": [r.to_dict() for r in bidder_rows],
+            "disqualification_reasons": disq_reasons,
+            "results": [r.to_dict() for r in sorted_bidder_rows],
         })
 
     # ── Aggregate across all bidders ──────────────────────────────────────

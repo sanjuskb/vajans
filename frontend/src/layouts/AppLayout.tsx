@@ -5,12 +5,13 @@ import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard, Briefcase, ClipboardCheck, ScrollText,
   Settings, HelpCircle, LogOut, ChevronLeft, ChevronRight,
-  Bell, Plus, Sun, Moon,
+  Plus, Sun, Moon,
 } from "lucide-react";
 import { C, SP } from "../styles/tokens";
 import { jobsApi, analyzeApi } from "../services/api";
 import { useStore } from "../store/useStore";
 import Logo from "../components/ui/Logo";
+import NotificationDropdown from "../components/notifications/NotificationDropdown";
 import type { Job } from "../services/types";
 
 const PAGE_TITLES: Record<string, string> = {
@@ -93,7 +94,7 @@ export default function AppLayout() {
       <aside style={{
         width: W, flexShrink: 0,
         background: "var(--sidebar-bg)",
-        borderRight: "1px solid #1E2A3B",
+        borderRight: "1px solid var(--nav-divider)",
         display: "flex", flexDirection: "column",
         transition: "width 0.2s ease",
         position: "fixed", left: 0, top: 0, bottom: 0,
@@ -104,7 +105,7 @@ export default function AppLayout() {
           height: 64, display: "flex", alignItems: "center",
           justifyContent: collapsed ? "center" : "space-between",
           padding: collapsed ? 0 : `0 ${SP.lg}px 0 ${SP.md}px`,
-          borderBottom: "1px solid #1E2A3B",
+          borderBottom: "1px solid var(--nav-divider)",
           flexShrink: 0,
         }}>
           <Logo size="md" collapsed={collapsed} clickable showText={!collapsed} />
@@ -113,7 +114,7 @@ export default function AppLayout() {
               onClick={() => setCollapsed(true)}
               style={{
                 background: "none", border: "none",
-                color: "#6B7280", cursor: "pointer",
+                color: "var(--nav-icon)", cursor: "pointer",
                 padding: SP.xs, borderRadius: 4,
                 display: "flex", alignItems: "center",
               }}
@@ -126,7 +127,7 @@ export default function AppLayout() {
         {/* Navigation */}
         <nav style={{ flex: 1, padding: `${SP.sm}px ${collapsed ? 6 : SP.sm}px`, overflow: "auto" }}>
           {!collapsed && (
-            <div style={{ fontSize: 10, fontWeight: 700, color: "#6B7280", letterSpacing: "0.1em", padding: `${SP.sm}px ${SP.sm}px ${SP.xs}px`, textTransform: "uppercase" }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "var(--nav-section-label)", letterSpacing: "0.1em", padding: `${SP.sm}px ${SP.sm}px ${SP.xs}px`, textTransform: "uppercase" }}>
               Navigation
             </div>
           )}
@@ -134,10 +135,10 @@ export default function AppLayout() {
             <NavItem key={to} to={to} label={label} icon={<Icon size={16} />} collapsed={collapsed} badge={count} />
           ))}
 
-          <div style={{ height: 1, background: "#1E2A3B", margin: `${SP.sm}px 0` }} />
+          <div style={{ height: 1, background: "var(--nav-divider)", margin: `${SP.sm}px 0` }} />
 
           {!collapsed && (
-            <div style={{ fontSize: 10, fontWeight: 700, color: "#6B7280", letterSpacing: "0.1em", padding: `${SP.sm}px ${SP.sm}px ${SP.xs}px`, textTransform: "uppercase" }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "var(--nav-section-label)", letterSpacing: "0.1em", padding: `${SP.sm}px ${SP.sm}px ${SP.xs}px`, textTransform: "uppercase" }}>
               System
             </div>
           )}
@@ -148,7 +149,7 @@ export default function AppLayout() {
 
         {/* User section */}
         <div style={{
-          borderTop: "1px solid #1E2A3B",
+          borderTop: "1px solid var(--nav-divider)",
           padding: collapsed ? `${SP.sm}px 6px` : `${SP.sm}px ${SP.sm}px`,
           display: "flex", alignItems: "center", gap: SP.sm,
           flexShrink: 0, minWidth: 0,
@@ -156,7 +157,7 @@ export default function AppLayout() {
           <div style={{
             width: 32, height: 32, borderRadius: "50%", flexShrink: 0,
             background: C.accentMuted, display: "flex", alignItems: "center",
-            justifyContent: "center", fontSize: 11, fontWeight: 700, color: "#60A5FA",
+            justifyContent: "center", fontSize: 11, fontWeight: 700, color: "var(--nav-icon-active)",
             border: `1px solid ${C.accent}30`,
           }}>
             {user?.username ? user.username.slice(0, 2).toUpperCase() : "PO"}
@@ -164,16 +165,16 @@ export default function AppLayout() {
           {!collapsed && (
             <>
               <div style={{ flex: 1, overflow: "hidden" }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: "#F9FAFB", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "var(--user-name-color)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {user?.username ?? "Officer"}
                 </div>
-                <div style={{ fontSize: 10, fontWeight: 700, color: "#60A5FA", letterSpacing: "0.05em" }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "var(--user-role-color)", letterSpacing: "0.05em" }}>
                   {(user?.role ?? "officer").toUpperCase()}
                 </div>
               </div>
               <button
                 onClick={handleLogout}
-                style={{ background: "none", border: "none", color: "#6B7280", cursor: "pointer", padding: 4, flexShrink: 0 }}
+                style={{ background: "none", border: "none", color: "var(--nav-icon)", cursor: "pointer", padding: 4, flexShrink: 0 }}
                 title="Sign out"
               >
                 <LogOut size={14} />
@@ -187,8 +188,8 @@ export default function AppLayout() {
           <button
             onClick={() => setCollapsed(false)}
             style={{
-              background: "none", border: "1px solid #2D3F57",
-              borderRadius: 6, color: "#6B7280", cursor: "pointer",
+              background: "none", border: "1px solid var(--nav-divider)",
+              borderRadius: 6, color: "var(--nav-icon)", cursor: "pointer",
               padding: 5, margin: `${SP.sm}px auto`, display: "flex",
             }}
           >
@@ -241,21 +242,7 @@ export default function AppLayout() {
               {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
             </button>
 
-            <div style={{ position: "relative" }}>
-              <button
-                style={{ background: "none", border: "none", color: C.textSecondary, cursor: "pointer", padding: 7, borderRadius: 6, display: "flex" }}
-                title="Notifications"
-              >
-                <Bell size={16} />
-              </button>
-              {pendingCount > 0 && (
-                <span style={{
-                  position: "absolute", top: 3, right: 3,
-                  width: 7, height: 7, borderRadius: "50%",
-                  background: C.failSolid,
-                }} />
-              )}
-            </div>
+            <NotificationDropdown />
             <button
               onClick={() => navigate("/jobs?new=true")}
               style={{
@@ -310,15 +297,15 @@ function NavItem({
         borderRadius: 6, marginBottom: 2,
         textDecoration: "none", fontSize: 13,
         fontWeight: isActive ? 600 : 400,
-        color: isActive ? "#F9FAFB" : "#9CA3AF",
-        background: isActive ? "#1F2937" : "transparent",
+        color: isActive ? "var(--nav-item-color-active)" : "var(--nav-item-color)",
+        background: isActive ? "var(--nav-item-bg-active)" : "transparent",
         transition: "all 0.12s",
       })}
     >
       {({ isActive }) => (
         <>
           <span style={{ display: "flex", alignItems: "center", gap: SP.sm }}>
-            <span style={{ color: isActive ? "#60A5FA" : "#9CA3AF" }}>{icon}</span>
+            <span style={{ color: isActive ? "var(--nav-icon-active)" : "var(--nav-icon)" }}>{icon}</span>
             {!collapsed && label}
           </span>
           {!collapsed && badge > 0 && (

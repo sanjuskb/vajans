@@ -7,41 +7,41 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Surface
-        'bg-primary':    '#0B0F1A',
-        'bg-secondary':  '#111827',
-        'bg-tertiary':   '#1C2333',
-        'bg-hover':      '#1F2937',
-        'border-subtle': '#1E2A3B',
-        'border-active': '#2D3F57',
+        // Surface — CSS vars so they adapt to dark/light theme
+        'bg-primary':    'var(--bg-primary)',
+        'bg-secondary':  'var(--bg-secondary)',
+        'bg-tertiary':   'var(--bg-tertiary)',
+        'bg-hover':      'var(--bg-hover)',
+        'border-subtle': 'var(--border-subtle)',
+        'border-active': 'var(--border-active)',
 
-        // Brand
+        // Brand — accent hex stays (same in both themes)
         'accent-primary': '#2563EB',
         'accent-hover':   '#1D4ED8',
-        'accent-muted':   '#1E3A5F',
-        'accent-text':    '#60A5FA',
+        'accent-muted':   'var(--accent-muted)',
+        'accent-text':    'var(--accent-text)',
 
-        // Verdicts
+        // Verdicts — solid stays hex, bg/text via CSS vars
         'pass':          '#059669',
-        'pass-bg':       '#064E3B',
-        'pass-text':     '#D1FAE5',
+        'pass-bg':       'var(--pass-bg)',
+        'pass-text':     'var(--pass-text)',
         'fail':          '#DC2626',
-        'fail-bg':       '#450A0A',
-        'fail-text':     '#FCA5A5',
+        'fail-bg':       'var(--fail-bg)',
+        'fail-text':     'var(--fail-text)',
         'uncertain':     '#D97706',
-        'uncertain-bg':  '#451A03',
-        'uncertain-text':'#FCD34D',
+        'uncertain-bg':  'var(--uncertain-bg)',
+        'uncertain-text':'var(--uncertain-text)',
         'review':        '#7C3AED',
-        'review-bg':     '#2E1065',
-        'review-text':   '#C4B5FD',
+        'review-bg':     'var(--review-bg)',
+        'review-text':   'var(--review-text)',
 
-        // Text
-        'text-primary':   '#F9FAFB',
-        'text-secondary': '#9CA3AF',
-        'text-tertiary':  '#6B7280',
-        'text-inverse':   '#111827',
+        // Text — CSS vars
+        'text-primary':   'var(--text-primary)',
+        'text-secondary': 'var(--text-secondary)',
+        'text-tertiary':  'var(--text-tertiary)',
+        'text-inverse':   'var(--bg-primary)',
 
-        // Functional
+        // Functional — same in both themes
         'info':    '#0EA5E9',
         'warning': '#F59E0B',
         'danger':  '#EF4444',

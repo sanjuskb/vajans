@@ -12,6 +12,7 @@ alembic==1.14.0
 # ── Async / Tasks ─────────────────────────────────────────────────────────
 celery[redis]==5.4.0
 redis==5.2.1
+honcho==2.0.0                 # supervises uvicorn + celery in one Render service
 
 # ── Validation & Config ───────────────────────────────────────────────────
 pydantic==2.10.3

@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Plus, Search, ChevronRight, Briefcase, X, Upload, ChevronDown, Archive, Calendar, FileText, CheckCircle2, AlertCircle, Trash2 } from "lucide-react";
@@ -303,7 +304,7 @@ useEffect(() => {
   );
 }
 
-// ── Create modal ─────────────────────────────────────────────────────────────
+// ── Create modal (full-screen overlay) ───────────────────────────────────────
 
 function CreateJobModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
   const qc        = useQueryClient();
@@ -334,130 +335,142 @@ function CreateJobModal({ onClose, onCreated }: { onClose: () => void; onCreated
 
   const STEPS = ["Job Details", "Upload Documents", "Confirm"];
 
-  return (
-    /*
-     * Three-div modal pattern:
-     * 1. Backdrop — fixed, semi-transparent, scrollable
-     * 2. Centering wrapper — min-height:100% flex column, centers modal when short,
-     *    grows with modal when tall (so outer scroll can reach the full modal)
-     * 3. Modal card — natural height, no maxHeight constraint
-     */
+  return createPortal(
     <div
-      onClick={onClose}
       style={{
         position: "fixed", inset: 0, zIndex: 200,
-        background: "rgba(0,0,0,0.4)",
-        backdropFilter: "blur(6px)",
-        overflowY: "auto",
+        background: C.bgPrimary,
+        display: "flex", flexDirection: "column",
+        overflow: "hidden",
       }}
     >
+      {/* ── Fixed Header ── */}
       <div style={{
-        minHeight: "100%",
-        display: "flex", alignItems: "flex-start", justifyContent: "center",
-        padding: "20px 16px",
+        flexShrink: 0,
+        background: C.bgSecondary,
+        borderBottom: `1px solid ${C.borderSubtle}`,
+        padding: `${SP.xl}px ${SP.xl2}px ${SP.lg}px`,
       }}>
-      {/* ── Modal card ── */}
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          position: "relative",
-          background: C.bgSecondary, border: `1px solid ${C.borderActive}`,
-          borderRadius: 12, width: "100%", maxWidth: 600,
-          display: "flex", flexDirection: "column",
-          boxShadow: "0 24px 64px rgba(0,0,0,0.5)",
-          margin: "auto 0",
-        }}
-      >
-        {/* Header — always at top via flexShrink:0 in flex column */}
-        <div style={{
-          padding: `${SP.lg}px ${SP.xl}px`,
-          borderBottom: `1px solid ${C.borderSubtle}`,
-          display: "flex", justifyContent: "space-between", alignItems: "center",
-          background: C.bgSecondary, borderRadius: "12px 12px 0 0",
-          flexShrink: 0,
-        }}>
+        {/* Title row */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: SP.xl }}>
           <div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: C.textPrimary }}>New Evaluation Job</div>
-            <div style={{ fontSize: 12, color: C.textTertiary, marginTop: 2 }}>Step {step} of {STEPS.length} — {STEPS[step - 1]}</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: C.textPrimary, letterSpacing: "-0.02em" }}>
+              New Evaluation Job
+            </div>
+            <div style={{ fontSize: 13, color: C.textTertiary, marginTop: 4 }}>
+              Step {step} of {STEPS.length} — {STEPS[step - 1]}
+            </div>
           </div>
-          <button onClick={onClose} style={{ background: "none", border: "none", color: C.textTertiary, cursor: "pointer", padding: 4, display: "flex", borderRadius: 4 }}>
-            <X size={18} />
+          <button
+            onClick={onClose}
+            style={{
+              background: C.bgTertiary, border: `1px solid ${C.borderSubtle}`,
+              color: C.textSecondary, cursor: "pointer",
+              padding: "7px 14px", borderRadius: 8,
+              display: "flex", alignItems: "center", gap: SP.xs,
+              fontSize: 13, fontWeight: 500,
+            }}
+          >
+            <X size={15} /> Close
           </button>
         </div>
 
-        {/* Step progress bar — also sticky below header */}
-        <div style={{ height: 2, background: C.bgTertiary, flexShrink: 0 }}>
-          <div style={{ height: "100%", width: `${(step / STEPS.length) * 100}%`, background: C.accent, transition: "width 0.3s ease" }} />
+        {/* Horizontal Stepper */}
+        <div style={{ display: "flex", gap: SP.xs, alignItems: "center" }}>
+          {STEPS.map((s, i) => (
+            <React.Fragment key={s}>
+              <div style={{ display: "flex", alignItems: "center", gap: SP.sm }}>
+                <div style={{
+                  width: 28, height: 28, borderRadius: "50%",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  background: i + 1 < step ? C.passSolid : i + 1 === step ? C.accent : C.bgTertiary,
+                  border: `2px solid ${i + 1 < step ? C.passSolid : i + 1 === step ? C.accent : C.borderActive}`,
+                  fontSize: 11, fontWeight: 800,
+                  color: i + 1 <= step ? "#fff" : C.textTertiary,
+                  flexShrink: 0, transition: "all 0.25s",
+                }}>
+                  {i + 1 < step ? "✓" : i + 1}
+                </div>
+                <span style={{
+                  fontSize: 13,
+                  fontWeight: i + 1 === step ? 700 : 400,
+                  color: i + 1 === step ? C.textPrimary : i + 1 < step ? C.passText : C.textTertiary,
+                  whiteSpace: "nowrap",
+                }}>
+                  {s}
+                </span>
+              </div>
+              {i < STEPS.length - 1 && (
+                <div style={{
+                  flex: 1, height: 2, borderRadius: 2,
+                  background: i + 1 < step ? C.passSolid + "80" : C.borderSubtle,
+                  transition: "background 0.25s",
+                }} />
+              )}
+            </React.Fragment>
+          ))}
         </div>
 
-        {/* Scrollable body — flex: 1 + overflowY: auto keeps header fixed */}
-        <div style={{ overflowY: "auto", padding: SP.xl, flex: "1 1 0", minHeight: 0 }}>
-          {/* Step indicators */}
-          <div style={{ display: "flex", gap: SP.xs, marginBottom: SP.xl, alignItems: "center" }}>
-            {STEPS.map((s, i) => (
-              <React.Fragment key={s}>
-                <div style={{ display: "flex", alignItems: "center", gap: SP.xs }}>
-                  <div style={{
-                    width: 24, height: 24, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
-                    background: i + 1 < step ? C.passSolid : i + 1 === step ? C.accent : C.bgTertiary,
-                    border: `1.5px solid ${i + 1 < step ? C.passSolid : i + 1 === step ? C.accent : C.borderActive}`,
-                    fontSize: 10, fontWeight: 800, color: i + 1 <= step ? "#fff" : C.textTertiary, flexShrink: 0,
-                    transition: "all 0.2s",
-                  }}>
-                    {i + 1 < step ? "✓" : i + 1}
-                  </div>
-                  <span style={{ fontSize: 12, color: i + 1 === step ? C.textPrimary : C.textTertiary, fontWeight: i + 1 === step ? 600 : 400, whiteSpace: "nowrap" }}>
-                    {s}
-                  </span>
-                </div>
-                {i < STEPS.length - 1 && <div style={{ flex: 1, height: 1, background: i + 1 < step ? C.passSolid + "60" : C.borderSubtle }} />}
-              </React.Fragment>
-            ))}
-          </div>
+        {/* Progress bar */}
+        <div style={{ height: 3, background: C.bgTertiary, marginTop: SP.lg, borderRadius: 2 }}>
+          <div style={{
+            height: "100%", borderRadius: 2,
+            width: `${(step / STEPS.length) * 100}%`,
+            background: `linear-gradient(90deg, ${C.accent}, #3B82F6)`,
+            transition: "width 0.35s ease",
+          }} />
+        </div>
+      </div>
+
+      {/* ── Scrollable Content Area ── */}
+      <div style={{ flex: "1 1 0", minHeight: 0, overflowY: "auto", padding: `${SP.xl2}px` }}>
+        <div>
 
           {/* ── Step 1: Job Details ── */}
           {step === 1 && (
-            <div>
-              <div style={{ marginBottom: SP.lg }}>
+            <div style={{
+              background: C.bgSecondary,
+              border: `1px solid ${C.borderSubtle}`,
+              borderRadius: 12,
+              padding: SP.xl2,
+            }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: C.textPrimary, marginBottom: SP.xl }}>
+                Job Information
+              </div>
+              <div style={{ marginBottom: SP.xl }}>
                 <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: C.textPrimary, marginBottom: SP.sm }}>
                   Job Title <span style={{ color: C.failSolid }}>*</span>
                 </label>
                 <input
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  style={{ width: "100%" }}
+                  style={{ width: "100%", fontSize: 14, padding: "10px 14px" }}
                   placeholder="e.g. KSRDC Bridge Construction Tender 2024"
                   autoFocus
                 />
               </div>
-              <div style={{ marginBottom: SP.lg }}>
+              <div style={{ marginBottom: SP.xl }}>
                 <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: C.textPrimary, marginBottom: SP.sm }}>
                   Tender Reference Number
                 </label>
                 <input
                   value={ref}
                   onChange={(e) => setRef(e.target.value)}
-                  style={{ width: "100%", fontFamily: "JetBrains Mono, monospace" }}
+                  style={{ width: "100%", fontFamily: "JetBrains Mono, monospace", fontSize: 13, padding: "10px 14px" }}
                   placeholder="e.g. TENDER/2024/087"
                 />
               </div>
-              <div style={{ marginBottom: SP.xl }}>
+              <div>
                 <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: C.textPrimary, marginBottom: SP.sm }}>
                   Description <span style={{ fontSize: 11, fontWeight: 400, color: C.textTertiary }}>(optional)</span>
                 </label>
                 <textarea
                   value={desc}
                   onChange={(e) => setDesc(e.target.value)}
-                  rows={2}
-                  style={{ width: "100%", resize: "none", fontFamily: "inherit" }}
+                  rows={4}
+                  style={{ width: "100%", resize: "vertical", fontFamily: "inherit", fontSize: 13, padding: "10px 14px" }}
                   placeholder="Brief description of the procurement..."
                 />
-              </div>
-              <div style={{ display: "flex", gap: SP.sm, justifyContent: "flex-end" }}>
-                <Button variant="secondary" onClick={onClose}>Cancel</Button>
-                <Button variant="primary" disabled={!title.trim()} loading={createMut.isPending} onClick={() => createMut.mutate()}>
-                  Continue →
-                </Button>
               </div>
             </div>
           )}
@@ -465,14 +478,20 @@ function CreateJobModal({ onClose, onCreated }: { onClose: () => void; onCreated
           {/* ── Step 2: Upload Documents ── */}
           {step === 2 && jobId && (
             <div>
-              {/* Tender document */}
-              <div style={{ marginBottom: SP.xl }}>
+              {/* Tender document card */}
+              <div style={{
+                background: C.bgSecondary,
+                border: `1px solid ${C.borderSubtle}`,
+                borderRadius: 12,
+                padding: SP.xl2,
+                marginBottom: SP.xl,
+              }}>
                 <div style={{ display: "flex", alignItems: "center", gap: SP.sm, marginBottom: SP.md }}>
-                  <div style={{ width: 6, height: 6, borderRadius: "50%", background: C.failSolid, flexShrink: 0 }} />
-                  <span style={{ fontSize: 14, fontWeight: 700, color: C.textPrimary }}>Tender Document</span>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: C.failText, background: C.failBg, padding: "1px 7px", borderRadius: 4, letterSpacing: "0.05em" }}>REQUIRED</span>
+                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: C.failSolid, flexShrink: 0 }} />
+                  <span style={{ fontSize: 15, fontWeight: 700, color: C.textPrimary }}>Tender Document</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: C.failText, background: C.failBg, padding: "2px 8px", borderRadius: 4, letterSpacing: "0.05em" }}>REQUIRED</span>
                 </div>
-                <p style={{ fontSize: 12, color: C.textTertiary, marginBottom: SP.md, lineHeight: 1.5 }}>
+                <p style={{ fontSize: 13, color: C.textTertiary, marginBottom: SP.lg, lineHeight: 1.6 }}>
                   The main tender document containing eligibility criteria, financial requirements, and technical specifications.
                 </p>
                 <DropZone
@@ -491,24 +510,30 @@ function CreateJobModal({ onClose, onCreated }: { onClose: () => void; onCreated
                   }} />
               </div>
 
-              {/* Bidder documents */}
-              <div>
-                <div style={{ display: "flex", alignItems: "center", gap: SP.sm, marginBottom: SP.xs }}>
-                  <div style={{ width: 6, height: 6, borderRadius: "50%", background: C.accentText, flexShrink: 0 }} />
-                  <span style={{ fontSize: 14, fontWeight: 700, color: C.textPrimary }}>Bidder Documents</span>
+              {/* Bidder documents card */}
+              <div style={{
+                background: C.bgSecondary,
+                border: `1px solid ${C.borderSubtle}`,
+                borderRadius: 12,
+                padding: SP.xl2,
+                marginBottom: SP.xl,
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: SP.sm, marginBottom: SP.md }}>
+                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: C.accentText, flexShrink: 0 }} />
+                  <span style={{ fontSize: 15, fontWeight: 700, color: C.textPrimary }}>Bidder Documents</span>
                   <span style={{ fontSize: 11, fontWeight: 400, color: C.textTertiary }}>one file per bidder</span>
                   {bidders.length > 0 && (
                     <span style={{
                       fontSize: 11, fontWeight: 700,
                       color: C.passText, background: C.passBg,
-                      padding: "2px 8px", borderRadius: 9999,
+                      padding: "2px 10px", borderRadius: 9999,
                       marginLeft: "auto",
                     }}>
                       {bidders.length} file{bidders.length !== 1 ? "s" : ""} selected
                     </span>
                   )}
                 </div>
-                <p style={{ fontSize: 12, color: C.textTertiary, marginBottom: SP.md, lineHeight: 1.5 }}>
+                <p style={{ fontSize: 13, color: C.textTertiary, marginBottom: SP.lg, lineHeight: 1.6 }}>
                   Upload each bidder's submission as a separate file. Each file is evaluated independently against the tender criteria.
                 </p>
                 <DropZone
@@ -528,28 +553,26 @@ function CreateJobModal({ onClose, onCreated }: { onClose: () => void; onCreated
                     e.target.value = "";
                   }} />
 
-                {/* Bidder file list — always visible when files present */}
+                {/* Bidder file list */}
                 {bidders.length > 0 && (
                   <div style={{
-                    marginTop: SP.md,
+                    marginTop: SP.lg,
                     border: `1px solid ${C.passSolid}40`,
                     borderRadius: 8,
                     overflow: "hidden",
-                    background: `${C.passBg}20`,
+                    background: "rgba(5, 150, 105, 0.12)",
                   }}>
-                    {/* List header */}
                     <div style={{
                       padding: `${SP.sm}px ${SP.md}px`,
                       borderBottom: `1px solid ${C.passSolid}25`,
                       display: "flex", alignItems: "center", gap: SP.sm,
-                      background: `${C.passBg}40`,
+                      background: "rgba(5, 150, 105, 0.25)",
                     }}>
                       <CheckCircle2 size={13} color={C.passSolid} />
                       <span style={{ fontSize: 12, fontWeight: 600, color: C.passText }}>
                         {bidders.length} bidder document{bidders.length !== 1 ? "s" : ""} ready for upload
                       </span>
                     </div>
-                    {/* File rows */}
                     <div style={{ display: "flex", flexDirection: "column" }}>
                       {bidders.map((f, i) => (
                         <div
@@ -591,72 +614,108 @@ function CreateJobModal({ onClose, onCreated }: { onClose: () => void; onCreated
               </div>
 
               {/* Info box */}
-              <div style={{ background: C.accentMuted, border: `1px solid ${C.accent}25`, borderRadius: 6, padding: SP.md, marginTop: SP.xl, display: "flex", gap: SP.sm, alignItems: "center" }}>
-                <AlertCircle size={13} color={C.accentText} style={{ marginTop: 1, flexShrink: 0 }} />
-                <span style={{ fontSize: 12, color: C.accentText, lineHeight: 1.5 }}>
+              <div style={{ background: C.accentMuted, border: `1px solid ${C.accent}25`, borderRadius: 8, padding: SP.lg, display: "flex", gap: SP.sm, alignItems: "flex-start" }}>
+                <AlertCircle size={15} color={C.accentText} style={{ marginTop: 1, flexShrink: 0 }} />
+                <span style={{ fontSize: 13, color: C.accentText, lineHeight: 1.6 }}>
                   Processing takes 2–5 minutes per document. You can navigate away and check progress on the Job Detail page.
                 </span>
-              </div>
-
-              <div style={{ display: "flex", gap: SP.sm, justifyContent: "flex-end", marginTop: SP.xl }}>
-                <Button variant="secondary" onClick={() => setStep(1)}>← Back</Button>
-                <Button
-                  variant="primary"
-                  disabled={!tender}
-                  loading={uploadMut.isPending}
-                  onClick={() => uploadMut.mutate(jobId)}
-                  icon={<Upload size={14} />}
-                >
-                  {uploadMut.isPending ? "Uploading…" : "Upload & Continue →"}
-                </Button>
               </div>
             </div>
           )}
 
           {/* ── Step 3: Confirmation ── */}
           {step === 3 && (
-            <div style={{ textAlign: "center", padding: `${SP.xl}px 0` }}>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", paddingTop: SP.xl2 }}>
               <div style={{
-                width: 64, height: 64, borderRadius: "50%",
+                width: 80, height: 80, borderRadius: "50%",
                 background: C.passBg, border: `2px solid ${C.passSolid}`,
                 display: "flex", alignItems: "center", justifyContent: "center",
-                margin: "0 auto",
+                marginBottom: SP.xl,
               }}>
-                <CheckCircle2 size={32} color={C.passSolid} />
+                <CheckCircle2 size={40} color={C.passSolid} />
               </div>
-              <h3 style={{ fontSize: 20, fontWeight: 700, color: C.passText, marginTop: SP.lg, marginBottom: SP.sm }}>
+              <h3 style={{ fontSize: 24, fontWeight: 700, color: C.passText, marginBottom: SP.sm, textAlign: "center" }}>
                 Documents Uploaded
               </h3>
-              <p style={{ fontSize: 14, color: C.textSecondary, marginBottom: SP.sm, lineHeight: 1.6 }}>
+              <p style={{ fontSize: 15, color: C.textSecondary, marginBottom: SP.sm, lineHeight: 1.6, textAlign: "center" }}>
                 {tender ? `1 tender document` : "No tender"}{bidders.length > 0 ? ` + ${bidders.length} bidder submission${bidders.length !== 1 ? "s" : ""}` : ""} ready for evaluation.
               </p>
-              <p style={{ fontSize: 13, color: C.textTertiary, marginBottom: SP.xl2, lineHeight: 1.6 }}>
+              <p style={{ fontSize: 13, color: C.textTertiary, marginBottom: SP.xl2, lineHeight: 1.6, textAlign: "center" }}>
                 Open the job page to run the AI pipeline and monitor progress in real-time.
               </p>
 
-              {/* Summary */}
-              <div style={{ background: C.bgTertiary, borderRadius: 8, padding: SP.lg, textAlign: "left", marginBottom: SP.xl }}>
+              {/* Summary card */}
+              <div style={{
+                background: C.bgSecondary,
+                border: `1px solid ${C.borderSubtle}`,
+                borderRadius: 12,
+                padding: SP.xl2,
+                width: "100%",
+              }}>
                 {[
-                  { label: "Job Title",    value: title },
-                  { label: "Tender Ref",   value: ref || "—" },
-                  { label: "Documents",    value: `${tender ? 1 : 0} tender + ${bidders.length} bidder` },
+                  { label: "Job Title",  value: title },
+                  { label: "Tender Ref", value: ref || "—" },
+                  { label: "Documents",  value: `${tender ? 1 : 0} tender + ${bidders.length} bidder` },
                 ].map(({ label, value }) => (
-                  <div key={label} style={{ display: "flex", gap: SP.lg, marginBottom: SP.xs, fontSize: 13 }}>
-                    <span style={{ color: C.textTertiary, minWidth: 90 }}>{label}</span>
-                    <span style={{ color: C.textPrimary, fontFamily: label === "Tender Ref" ? "JetBrains Mono, monospace" : "inherit" }}>{value}</span>
+                  <div key={label} style={{ display: "flex", gap: SP.lg, marginBottom: SP.md, fontSize: 14, alignItems: "flex-start" }}>
+                    <span style={{ color: C.textTertiary, minWidth: 110, flexShrink: 0 }}>{label}</span>
+                    <span style={{ color: C.textPrimary, fontFamily: label === "Tender Ref" ? "JetBrains Mono, monospace" : "inherit", fontWeight: 500 }}>{value}</span>
                   </div>
                 ))}
               </div>
-
-              <Button variant="primary" size="lg" style={{ width: "100%" }} onClick={() => jobId && onCreated(jobId)}>
-                Open Job → Run Pipeline
-              </Button>
             </div>
+          )}
+
+        </div>
+      </div>
+
+      {/* ── Sticky Bottom Action Bar ── */}
+      <div style={{
+        flexShrink: 0,
+        background: C.bgSecondary,
+        borderTop: `1px solid ${C.borderSubtle}`,
+        padding: `${SP.lg}px ${SP.xl2}px`,
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+      }}>
+        {/* Left: Back button */}
+        <div>
+          {step === 2 && (
+            <Button variant="secondary" onClick={() => setStep(1)}>← Back</Button>
+          )}
+        </div>
+
+        {/* Right: Cancel + primary action */}
+        <div style={{ display: "flex", gap: SP.sm, alignItems: "center" }}>
+          {step < 3 && (
+            <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          )}
+          {step === 1 && (
+            <Button variant="primary" disabled={!title.trim()} loading={createMut.isPending} onClick={() => createMut.mutate()}>
+              Continue →
+            </Button>
+          )}
+          {step === 2 && (
+            <Button
+              variant="primary"
+              disabled={!tender}
+              loading={uploadMut.isPending}
+              onClick={() => uploadMut.mutate(jobId!)}
+              icon={<Upload size={14} />}
+            >
+              {uploadMut.isPending ? "Uploading…" : "Upload & Continue →"}
+            </Button>
+          )}
+          {step === 3 && (
+            <Button variant="primary" size="lg" onClick={() => jobId && onCreated(jobId)}>
+              Open Job → Run Pipeline
+            </Button>
           )}
         </div>
       </div>
-      </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -703,7 +762,7 @@ function DropZone({ file, onFile, onClear, inputRef, accept, hint, multi = false
   const isDone      = !multi && file !== null;
   const hasMulti    = multi && multiCount > 0;
   const borderColor = isDone || hasMulti ? C.passSolid : dragging ? C.accent : C.borderActive;
-  const bgColor     = isDone || hasMulti ? `${C.passBg}30` : dragging ? `${C.accentMuted}60` : C.bgTertiary;
+  const bgColor     = isDone || hasMulti ? "rgba(5, 150, 105, 0.18)" : dragging ? "rgba(37, 99, 235, 0.12)" : C.bgTertiary;
 
   return (
     <div

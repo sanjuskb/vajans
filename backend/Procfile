@@ -1,0 +1,5 @@
+# Used by honcho to launch FastAPI + Celery in the same Render service.
+# Render injects $PORT for the web process. The worker has no port; it
+# only opens a Redis broker connection.
+web: uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips='*'
+worker: celery -A worker.celery_app worker --loglevel=info -Q ingestion,extraction,evaluation,default --concurrency=${CELERY_CONCURRENCY:-2}

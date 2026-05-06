@@ -169,6 +169,37 @@ async def download_file(file_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     )
 
 
+@router.get("/{file_id}/inline")
+async def inline_file(file_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """
+    Stream the raw file bytes for INLINE rendering in the browser
+    (e.g., loaded by the in-app react-pdf viewer).
+
+    Differences from /download:
+      - Content-Disposition is `inline`, not `attachment`.
+      - Adds `Accept-Ranges: bytes` so pdf.js can range-fetch large PDFs.
+      - Adds permissive cache header so subsequent page renders are fast.
+    """
+    f = await db.get(FileModel, file_id)
+    if not f:
+        raise HTTPException(status_code=404, detail="File not found")
+    try:
+        raw = await asyncio.to_thread(storage().load, f.storage_path)
+    except (FileNotFoundError, Exception) as exc:
+        logger.error("File data missing from storage", file_id=str(file_id), error=str(exc))
+        raise HTTPException(status_code=404, detail="File data not found on storage")
+    return StreamingResponse(
+        io.BytesIO(raw),
+        media_type=f.mime_type or "application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="{f.original_name}"',
+            "Accept-Ranges": "bytes",
+            "Cache-Control": "private, max-age=300",
+            "Content-Length": str(len(raw)),
+        },
+    )
+
+
 @router.get("/{file_id}", response_model=FileRead)
 async def get_file(file_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     f = await db.get(FileModel, file_id)

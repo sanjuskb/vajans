@@ -56,17 +56,25 @@ export default function LoginPage() {
         padding: `${SP.xl4}px ${SP.xl3}px`,
         position: "relative", overflow: "hidden",
       }}>
-        {/* Background watermark */}
+        {/* Background watermark — faint render of the new brand mark */}
         <div style={{
           position: "absolute", top: "50%", left: "50%",
           transform: "translate(-50%, -50%)",
-          opacity: 0.03, pointerEvents: "none",
+          opacity: 0.06, pointerEvents: "none",
           userSelect: "none",
+          filter: "blur(0.5px)",
         }}>
-          <svg width="340" height="340" viewBox="0 0 32 32" fill="none">
-            <path d="M16 2L27.856 8.5V21.5L16 28L4.144 21.5V8.5L16 2Z" stroke="white" strokeWidth="0.5" />
-            <path d="M16 7L22 10.5V17.5L16 21L10 17.5V10.5L16 7Z" stroke="white" strokeWidth="0.5" />
-          </svg>
+          <img
+            src="/brand/vajans-logo-512.png"
+            width={420}
+            height={420}
+            alt=""
+            aria-hidden="true"
+            draggable={false}
+            decoding="async"
+            loading="lazy"
+            style={{ display: "block", borderRadius: 32 }}
+          />
         </div>
 
         <div>

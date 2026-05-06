@@ -379,7 +379,7 @@ export default function DashboardPage() {
                   <td style={{ padding: "12px 16px" }}>
                     <span style={{
                       fontSize: 11, fontWeight: 600,
-                      color: "#FCD34D", background: "#451A03",
+                      color: C.uncertainText, background: C.uncertainBg,
                       padding: "2px 8px", borderRadius: 4,
                     }}>
                       Low AI confidence — review required
@@ -393,8 +393,8 @@ export default function DashboardPage() {
                       <button
                         onClick={() => navigate(`/jobs/${latestCompletedId}`)}
                         style={{
-                          background: "none", border: "1px solid #D97706",
-                          borderRadius: 6, color: "#FCD34D",
+                          background: "none", border: `1px solid ${C.uncertainSolid}`,
+                          borderRadius: 6, color: C.uncertainText,
                           cursor: "pointer", fontSize: 12, padding: "4px 10px",
                         }}
                       >

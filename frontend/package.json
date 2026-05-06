@@ -8,7 +8,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "lint": "eslint src --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "test:match": "node scripts/match-engine.smoke.mjs"
   },
   "dependencies": {
     "@tailwindcss/oxide-linux-x64-gnu": "^4.2.4",
@@ -19,9 +20,11 @@
     "date-fns": "^4.1.0",
     "framer-motion": "^12.38.0",
     "lucide-react": "^0.468.0",
+    "pdfjs-dist": "^4.4.168",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-hot-toast": "^2.4.1",
+    "react-pdf": "^9.1.1",
     "react-router-dom": "^6.28.0",
     "recharts": "^3.8.1",
     "zustand": "^5.0.12"

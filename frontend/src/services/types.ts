@@ -33,6 +33,30 @@ export interface CriteriaListResponse {
   data: CriterionDetail[];
 }
 
+// One extraction row = one (criterion, bidder file) pair's extracted field.
+// `file_id` is the BIDDER file the value was pulled from (not the tender).
+export interface ExtractionRow {
+  id: string;
+  job_id: string;
+  file_id: string;
+  criterion_id: string;
+  field_name: string;
+  raw_value: string | null;
+  parsed_value: string | null;
+  unit: string | null;
+  source_snippet: string | null;
+  extraction_confidence: number;
+  not_found: boolean;
+  raw_llm_output: string;
+  page_number: number | null;
+  created_at: string;
+}
+
+export interface ExtractionsResponse {
+  total: number;
+  data: ExtractionRow[];
+}
+
 // ── Jobs ─────────────────────────────────────────────────────────────────────
 
 export interface Job {

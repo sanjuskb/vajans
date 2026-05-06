@@ -101,6 +101,9 @@ class ExtractionResultDB(Base):
     extraction_confidence: Mapped[float]     = mapped_column(Float,   nullable=False, default=0.0)
     not_found:             Mapped[bool]      = mapped_column(Boolean, nullable=False, default=False)
     raw_llm_output:        Mapped[str]       = mapped_column(Text,    nullable=False, default="")
+    # 1-indexed page number where source_snippet was found (best-effort match
+    # against the bidder's chunked text). Null if no match could be resolved.
+    page_number:           Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

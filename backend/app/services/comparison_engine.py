@@ -25,7 +25,11 @@ async def compare_bidders(db: AsyncSession, job_id: uuid_mod.UUID) -> Dict[str, 
         await db.execute(
             select(EvaluationResult)
             .where(EvaluationResult.job_id == job_id)
-            .order_by(EvaluationResult.created_at.asc())
+            # Stable ordering: id breaks created_at ties so dedup picks
+            # the same "latest" row in every read. Without this, runs that
+            # share a transaction timestamp can yield different results.
+            .order_by(EvaluationResult.created_at.asc(),
+                      EvaluationResult.id.asc())
         )
     ).scalars().all()
 
@@ -94,25 +98,31 @@ async def compare_bidders(db: AsyncSession, job_id: uuid_mod.UUID) -> Dict[str, 
             for r in rows
         )
 
-        # Build per-criterion verdict map for the matrix view
-        criteria_verdicts = [
-            {
-                "criterion_id": str(r.criterion_id),
-                "verdict": r.verdict,
-                "score": r.score,
-                "explanation": r.explanation,
-            }
-            for r in rows
-        ]
+        # Build per-criterion verdict map for the matrix view.
+        # Sort by criterion_id so the matrix column order is stable
+        # for a given criterion set, regardless of dict insertion order.
+        criteria_verdicts = sorted(
+            (
+                {
+                    "criterion_id": str(r.criterion_id),
+                    "verdict":      r.verdict,
+                    "score":        r.score,
+                    "explanation":  r.explanation,
+                }
+                for r in rows
+            ),
+            key=lambda d: d["criterion_id"],
+        )
 
-        # Disqualification reasons (failed mandatory criteria)
-        disq_reasons = [
+        # Disqualification reasons (failed mandatory criteria) -- sorted by
+        # label for deterministic display.
+        disq_reasons = sorted([
             crit_map[str(r.criterion_id)].label
             for r in rows
             if r.verdict == "fail"
             and crit_map.get(str(r.criterion_id)) is not None
             and crit_map[str(r.criterion_id)].mandatory
-        ]
+        ])
 
         bidder_id_str = str(bidder_uuid) if bidder_uuid is not None else None
         bidder_name   = file_map.get(bidder_id_str, "Unassigned") if bidder_id_str else "Unassigned"
@@ -130,8 +140,17 @@ async def compare_bidders(db: AsyncSession, job_id: uuid_mod.UUID) -> Dict[str, 
             "criteria":               criteria_verdicts,
         })
 
-    # Rank: disqualified bidders go to the bottom; within groups, sort by score desc
-    bidders.sort(key=lambda b: (b["is_disqualified"], -b["total_score"], b["fail"]))
+    # Rank: disqualified bidders go to the bottom; within groups, sort by score desc.
+    # Final tiebreak: bidder_name then bidder_id so identical scores produce
+    # the SAME ranking order across runs (Python sort is stable, but the
+    # incoming order from `bidder_results.items()` depends on dict insertion).
+    bidders.sort(key=lambda b: (
+        b["is_disqualified"],
+        -b["total_score"],
+        b["fail"],
+        (b["bidder_name"] or "").lower(),
+        b["bidder_id"] or "",
+    ))
 
     rankings: List[Dict[str, Any]] = []
     eligible_rank   = 1

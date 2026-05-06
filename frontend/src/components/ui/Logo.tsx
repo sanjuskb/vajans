@@ -1,13 +1,28 @@
 import { useNavigate } from "react-router-dom";
 
 interface LogoProps {
-  size?: "sm" | "md" | "lg";
+  size?: "sm" | "md" | "lg" | "xl";
   className?: string;
   showText?: boolean;
   /** If true, clicking navigates to /about */
   clickable?: boolean;
   collapsed?: boolean;
 }
+
+// Display dimensions (CSS pixels). The actual image asset is served at higher
+// physical resolution via srcSet so the mark stays crisp on retina / 2x DPR
+// screens without forcing a heavier asset on standard-DPR clients.
+const ICON_SIZES = { sm: 22, md: 28, lg: 40, xl: 96 } as const;
+const TEXT_SIZES = { sm: 14, md: 16, lg: 24, xl: 32 } as const;
+const SUB_SIZES  = { sm: 0, md: 9, lg: 10, xl: 12 } as const;
+
+// Asset paths (served from /public/brand). Resolution-tier srcSet lets the
+// browser pick the smallest sufficient asset for the user's display.
+const LOGO_SRC     = "/brand/vajans-logo-128.png";
+const LOGO_SRC_SET =
+  "/brand/vajans-logo-128.png 1x, " +
+  "/brand/vajans-logo-256.png 2x, " +
+  "/brand/vajans-logo-512.png 4x";
 
 export default function Logo({
   size = "md",
@@ -17,51 +32,34 @@ export default function Logo({
   collapsed = false,
 }: LogoProps) {
   const navigate = useNavigate();
+  const px = ICON_SIZES[size];
 
-  const iconSizes = { sm: 22, md: 28, lg: 40 };
-  const textSizes = { sm: "14px", md: "16px", lg: "24px" };
-  const px = iconSizes[size];
-
+  // The brand mark itself. width/height are intrinsic so the browser reserves
+  // exact box space before the PNG decodes (zero CLS). Subtle border-radius
+  // softens the dark-navy corners against light theme without clipping the
+  // hexagon — the hexagon sits inside its own padding within the artwork.
   const mark = (
-    <svg
+    <img
+      src={LOGO_SRC}
+      srcSet={LOGO_SRC_SET}
       width={px}
       height={px}
-      viewBox="0 0 32 32"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      style={{ flexShrink: 0 }}
-    >
-      {/* Hexagonal outer frame — structural trust */}
-      <path
-        d="M16 2L27.856 8.5V21.5L16 28L4.144 21.5V8.5L16 2Z"
-        stroke="#2563EB"
-        strokeWidth="1.5"
-        fill="none"
-      />
-      {/* Inner shield accent — institutional authority */}
-      <path
-        d="M16 7L22 10.5V17.5L16 21L10 17.5V10.5L16 7Z"
-        fill="#1E3A5F"
-        stroke="#2563EB"
-        strokeWidth="0.75"
-      />
-      {/* Scale of justice centerpiece — evaluation core */}
-      <line x1="16" y1="10" x2="16" y2="18" stroke="#60A5FA" strokeWidth="1.2" strokeLinecap="round" />
-      <line x1="12.5" y1="12.5" x2="19.5" y2="12.5" stroke="#60A5FA" strokeWidth="1.2" strokeLinecap="round" />
-      <circle cx="12.5" cy="14.5" r="1.5" fill="#60A5FA" />
-      <circle cx="19.5" cy="14.5" r="1.5" fill="#60A5FA" />
-      {/* Verdict tick — deterministic decision */}
-      <path
-        d="M14 17.5L15.5 19L18.5 16"
-        stroke="#10B981"
-        strokeWidth="1.2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
+      alt="VAJANS"
+      decoding="async"
+      loading="eager"
+      draggable={false}
+      style={{
+        width: px,
+        height: px,
+        flexShrink: 0,
+        objectFit: "contain",
+        borderRadius: size === "xl" ? 16 : size === "lg" ? 8 : 6,
+        display: "block",
+      }}
+    />
   );
 
-  const content = (
+  return (
     <div
       style={{
         display: "flex",
@@ -78,9 +76,9 @@ export default function Logo({
       {showText && !collapsed && (
         <div>
           <div style={{
-            fontSize: textSizes[size],
+            fontSize: TEXT_SIZES[size],
             fontWeight: 800,
-            color: "#F9FAFB",
+            color: "var(--text-primary)",
             letterSpacing: "0.12em",
             lineHeight: 1,
           }}>
@@ -88,8 +86,8 @@ export default function Logo({
           </div>
           {size !== "sm" && (
             <div style={{
-              fontSize: "9px",
-              color: "#6B7280",
+              fontSize: SUB_SIZES[size],
+              color: "var(--text-tertiary)",
               letterSpacing: "0.08em",
               marginTop: 2,
               textTransform: "uppercase",
@@ -101,6 +99,4 @@ export default function Logo({
       )}
     </div>
   );
-
-  return content;
 }

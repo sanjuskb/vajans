@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft, CheckCircle2, XCircle, FileText, BookOpen, AlertCircle,
-  TrendingUp, Target, Award, Activity,
+  TrendingUp, Target, Award, Activity, ExternalLink,
 } from "lucide-react";
 import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
@@ -12,7 +12,8 @@ import {
   Line, ComposedChart, Area,
 } from "recharts";
 import { analyzeApi } from "../services/api";
-import type { EvalResultRow } from "../services/types";
+import type { EvalResultRow, ExtractionRow } from "../services/types";
+import PdfViewerModal, { type EvidenceContext } from "../components/pdf/PdfViewerModal";
 
 // ── Theme-aware tokens ───────────────────────────────────────────────────────
 const T = {
@@ -151,6 +152,38 @@ export default function AnalysisPage() {
     enabled: !!jobId,
     staleTime: 60_000,
   });
+
+  // Per-bidder extractions — provide file_id, page_number, and bidder source
+  // snippet so the View Document button can deep-link into the bidder PDF.
+  const { data: extractionsResp } = useQuery({
+    queryKey: ["extractions", jobId],
+    queryFn: () => analyzeApi.getExtractions(jobId!),
+    enabled: !!jobId,
+    staleTime: 60_000,
+  });
+
+  // ── PDF viewer state ──────────────────────────────────────────
+  const [documentViewer, setDocumentViewer] = useState<{
+    fileId: string; fileName: string; page: number; snippet: string;
+    evidence?: EvidenceContext;
+  } | null>(null);
+
+  const handleViewInDocument = (
+    fileId: string | null | undefined,
+    page: number | null | undefined,
+    snippet: string | null | undefined,
+    fileName?: string | null,
+    evidence?: EvidenceContext,
+  ) => {
+    if (!fileId) return;
+    setDocumentViewer({
+      fileId,
+      fileName: fileName ?? "Document",
+      page: page ?? 1,
+      snippet: snippet ?? "",
+      evidence,
+    });
+  };
 
   // ── Resolve target bidder ─────────────────────────────────────────────────
   const thisBidder = useMemo(() => {
@@ -304,10 +337,35 @@ export default function AnalysisPage() {
     });
   }, [thisResults, detailMap]);
 
+  // ── Per-bidder extraction map: criterion_id → ExtractionRow ───────────────
+  // Restricted to THIS bidder's file. On conflict prefer not_found=false rows
+  // with the highest extraction_confidence.
+  const extractionMap = useMemo<Record<string, ExtractionRow>>(() => {
+    const all = extractionsResp?.data ?? [];
+    const bidderFid = thisBidder?.bidder_file_id;
+    if (!bidderFid) return {};
+    const map: Record<string, ExtractionRow> = {};
+    for (const ex of all) {
+      if (ex.file_id !== bidderFid) continue;
+      const prior = map[ex.criterion_id];
+      if (!prior) { map[ex.criterion_id] = ex; continue; }
+      // Prefer not_found=false; among those, higher confidence wins
+      const priorBad = prior.not_found;
+      const exBad    = ex.not_found;
+      if (priorBad && !exBad) { map[ex.criterion_id] = ex; continue; }
+      if (!priorBad && exBad) continue;
+      if (ex.extraction_confidence > prior.extraction_confidence) {
+        map[ex.criterion_id] = ex;
+      }
+    }
+    return map;
+  }, [extractionsResp, thisBidder]);
+
   // ── Criteria detail rows (with evidence) ─────────────────────────────────
   const criteriaRows = useMemo(() => {
     return thisResults.map((r) => {
       const d = detailMap[r.criterion_id];
+      const ex = extractionMap[r.criterion_id];
       return {
         id:          r.criterion_id,
         label:       d?.label ?? r.criterion_id,
@@ -321,9 +379,14 @@ export default function AnalysisPage() {
         explanation: r.explanation,
         snippet:     d?.source_snippet ?? null,
         sourceDoc:   "Tender Document",
+        // Bidder-side data for the View Document button
+        bidderFileId:   ex?.file_id ?? thisBidder?.bidder_file_id ?? null,
+        bidderFileName: bidderName,
+        pageNumber:     ex?.page_number ?? null,
+        bidderSnippet:  ex?.source_snippet ?? null,
       };
     });
-  }, [thisResults, detailMap]);
+  }, [thisResults, detailMap, extractionMap, thisBidder, bidderName]);
 
   const evidenceRows = useMemo(
     () => criteriaRows.filter((r) => r.snippet && r.snippet.trim().length > 0),
@@ -439,7 +502,7 @@ export default function AnalysisPage() {
                   angle={-30} textAnchor="end" interval={0} height={48} />
                 <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: T.axis }} width={36} />
                 <Tooltip contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} itemStyle={tooltipItemStyle}
-                  formatter={(v: number) => [`${v}/100`, "Score"]} />
+                  formatter={(v) => [`${v}/100`, "Score"]} />
                 <ReferenceLine y={70} stroke={PALETTE.amber} strokeDasharray="4 4"
                   label={{ value: "Threshold", position: "insideTopRight", fill: T.axis, fontSize: 10 }} />
                 <Bar dataKey="score" radius={[4, 4, 0, 0]} maxBarSize={48}
@@ -525,7 +588,7 @@ export default function AnalysisPage() {
                 <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: T.axis }} width={36} />
                 <Tooltip contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} itemStyle={tooltipItemStyle}
                   labelFormatter={(_l, p) => p?.[0]?.payload?.criterion ?? ""}
-                  formatter={(v: number, name: string) => [`${v}`, name]} />
+                  formatter={(v, name) => [`${v}`, name]} />
                 <ReferenceLine y={70} stroke={PALETTE.amber} strokeDasharray="4 4" />
                 <Area type="monotone" dataKey="score" stroke={PALETTE.blue}
                   strokeWidth={2} fill="url(#scoreArea)"
@@ -550,7 +613,7 @@ export default function AnalysisPage() {
                 <XAxis dataKey="range" tick={{ fontSize: 10, fill: T.axis }} />
                 <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: T.axis }} width={36} />
                 <Tooltip contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} itemStyle={tooltipItemStyle}
-                  formatter={(v: number) => [`${v} criteria`, "Count"]} />
+                  formatter={(v) => [`${v} criteria`, "Count"]} />
                 <Bar dataKey="count" radius={[4, 4, 0, 0]} maxBarSize={56}
                   isAnimationActive animationDuration={600}>
                   {scoreBuckets.map((d, i) => <Cell key={i} fill={d.fill} />)}
@@ -576,7 +639,7 @@ export default function AnalysisPage() {
               <YAxis type="category" dataKey="name"
                 tick={{ fontSize: 11, fill: T.textSub }} width={200} interval={0} />
               <Tooltip contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} itemStyle={tooltipItemStyle}
-                formatter={(v: number) => [`${v}/100`, "Score"]} />
+                formatter={(v) => [`${v}/100`, "Score"]} />
               <ReferenceLine x={70} stroke={PALETTE.amber} strokeDasharray="4 4"
                 label={{ value: "70", position: "top", fill: PALETTE.amber, fontSize: 10 }} />
               <Bar dataKey="score" radius={[0, 4, 4, 0]} maxBarSize={20}
@@ -600,7 +663,12 @@ export default function AnalysisPage() {
           {evidenceRows.length > 0 ? (
             <div style={{ display: "flex", flexDirection: "column" }}>
               {evidenceRows.slice(0, 12).map((r, i) => (
-                <EvidenceCard key={r.id + i} row={r} isLast={i === Math.min(evidenceRows.length - 1, 11)} />
+                <EvidenceCard
+                  key={r.id + i}
+                  row={r}
+                  isLast={i === Math.min(evidenceRows.length - 1, 11)}
+                  onView={handleViewInDocument}
+                />
               ))}
               {evidenceRows.length > 12 && (
                 <div style={{
@@ -624,6 +692,17 @@ export default function AnalysisPage() {
       </div>
 
       <div style={{ height: 24 }} />
+
+      {/* Focused Evidence Viewer — floats over the page; deep-links to the bidder PDF */}
+      <PdfViewerModal
+        open={!!documentViewer}
+        fileId={documentViewer?.fileId ?? null}
+        fileName={documentViewer?.fileName}
+        page={documentViewer?.page ?? 1}
+        snippet={documentViewer?.snippet}
+        evidence={documentViewer?.evidence}
+        onClose={() => setDocumentViewer(null)}
+      />
     </div>
   );
 }
@@ -667,14 +746,25 @@ function MetricCard({
 }
 
 function EvidenceCard({
-  row, isLast,
+  row, isLast, onView,
 }: {
   row: {
     id: string; label: string; verdict: string; score: number;
     explanation: string; snippet: string | null; sourceDoc: string;
     type: string; mandatory: boolean; threshold: string;
+    bidderFileId: string | null;
+    bidderFileName: string | null;
+    pageNumber: number | null;
+    bidderSnippet: string | null;
   };
   isLast: boolean;
+  onView: (
+    fileId: string | null,
+    page: number | null,
+    snippet: string | null,
+    fileName?: string | null,
+    evidence?: EvidenceContext,
+  ) => void;
 }) {
   const vColor = row.verdict === "pass" ? PALETTE.green
               : row.verdict === "fail" ? PALETTE.red
@@ -742,15 +832,69 @@ function EvidenceCard({
           }}>
             “{row.snippet}”
           </blockquote>
-          <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <div style={{
+            marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap",
+            alignItems: "center",
+          }}>
             <span style={{
               display: "inline-flex", alignItems: "center", gap: 5,
               fontSize: 10, fontWeight: 700, color: PALETTE.blue,
               background: `${PALETTE.blue}1A`, border: `1px solid ${PALETTE.blue}40`,
-              padding: "3px 8px", borderRadius: 4,
+              padding: "4px 9px", borderRadius: 4, letterSpacing: "0.04em",
             }}>
               <BookOpen size={10} /> {row.sourceDoc}
             </span>
+
+            {/* View Document — opens bidder PDF at the matched page,
+                highlights the bidder's source snippet in the text layer. */}
+            <button
+              type="button"
+              onClick={() => onView(
+                row.bidderFileId,
+                row.pageNumber,
+                row.bidderSnippet ?? row.snippet,
+                row.bidderFileName,
+                {
+                  criterionLabel: row.label,
+                  verdict:        row.verdict,
+                  score:          row.score,
+                  explanation:    row.explanation,
+                  mandatory:      row.mandatory,
+                  threshold:      row.threshold,
+                },
+              )}
+              disabled={!row.bidderFileId}
+              title={row.bidderFileId
+                ? `Open ${row.bidderFileName ?? "bidder document"}${row.pageNumber ? ` on page ${row.pageNumber}` : ""}`
+                : "Bidder document not available"}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                fontSize: 11, fontWeight: 600,
+                color: row.bidderFileId ? "#fff" : T.textMute,
+                background: row.bidderFileId ? PALETTE.blue : "transparent",
+                border: `1px solid ${row.bidderFileId ? PALETTE.blue : T.border}`,
+                padding: "5px 11px", borderRadius: 6,
+                cursor: row.bidderFileId ? "pointer" : "not-allowed",
+                opacity: row.bidderFileId ? 1 : 0.55,
+                transition: "transform 0.12s ease, box-shadow 0.12s ease, background 0.12s",
+                boxShadow: row.bidderFileId ? "0 1px 2px rgba(37,99,235,0.25)" : "none",
+              }}
+              onMouseEnter={(e) => {
+                if (!row.bidderFileId) return;
+                e.currentTarget.style.background  = "#1D4ED8";
+                e.currentTarget.style.transform   = "translateY(-1px)";
+                e.currentTarget.style.boxShadow   = "0 4px 10px rgba(37,99,235,0.35)";
+              }}
+              onMouseLeave={(e) => {
+                if (!row.bidderFileId) return;
+                e.currentTarget.style.background = PALETTE.blue;
+                e.currentTarget.style.transform  = "translateY(0)";
+                e.currentTarget.style.boxShadow  = "0 1px 2px rgba(37,99,235,0.25)";
+              }}
+            >
+              <ExternalLink size={11} />
+              View Document{row.pageNumber ? ` · Page ${row.pageNumber}` : ""}
+            </button>
           </div>
         </div>
       )}

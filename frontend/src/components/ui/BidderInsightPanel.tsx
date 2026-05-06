@@ -7,13 +7,14 @@ import {
 } from "recharts";
 import { X, CheckCircle2, XCircle } from "lucide-react";
 import { analyzeApi } from "../../services/api";
+import { C } from "../../styles/tokens";
 import type { EvalResultRow } from "../../services/types";
 
 // ── Chart card style ──────────────────────────────────────────────────────────
 
 const CHART_CARD: React.CSSProperties = {
-  background: "#111827",
-  border: "1px solid #1E2A3B",
+  background: "var(--bg-secondary)",
+  border: "1px solid var(--border-subtle)",
   borderRadius: 12,
   padding: 20,
   overflow: "hidden",
@@ -174,9 +175,9 @@ export default function BidderInsightPanel({ jobId, bidderFileId, bidderName, on
   // ── Render ──────────────────────────────────────────────────────────────────
 
   if (evalLoading) return (
-    <div style={{ position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh", background: "#0B0F1A", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 16 }}>
-      <div style={{ width: 40, height: 40, border: "3px solid #1E2A3B", borderTopColor: "#3B82F6", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
-      <div style={{ fontSize: 13, color: "#4B5563" }}>Loading analysis…</div>
+    <div style={{ position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh", background: "var(--bg-primary)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 16 }}>
+      <div style={{ width: 40, height: 40, border: "3px solid var(--border-subtle)", borderTopColor: "#3B82F6", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+      <div style={{ fontSize: 13, color: "var(--text-tertiary)" }}>Loading analysis…</div>
     </div>
   );
 
@@ -184,7 +185,7 @@ export default function BidderInsightPanel({ jobId, bidderFileId, bidderName, on
     <div style={{
       position: "fixed", top: 0, left: 0,
       width: "100vw", height: "100vh",
-      background: "#0B0F1A",
+      background: "var(--bg-primary)",
       zIndex: 9999,
       overflowY: "auto",
       overflowX: "hidden",
@@ -194,35 +195,35 @@ export default function BidderInsightPanel({ jobId, bidderFileId, bidderName, on
 
         {/* ── Sticky Header ── */}
         <div style={{
-          background: "#111827", borderBottom: "1px solid #1E2A3B",
+          background: "var(--bg-secondary)", borderBottom: "1px solid var(--border-subtle)",
           padding: "0 32px", height: 64,
           position: "sticky", top: 0, zIndex: 10, flexShrink: 0,
           display: "flex", alignItems: "center", gap: 16,
         }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <span style={{ fontSize: 16, fontWeight: 700, color: "#F9FAFB", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              <span style={{ fontSize: 16, fontWeight: 700, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {bidderName}
               </span>
               <span style={{
                 fontSize: 11, fontWeight: 700, padding: "2px 10px", borderRadius: 20,
-                background: isQualified ? "#064E3B" : totalCount ? "#450A0A" : "#1F2937",
-                color:      isQualified ? "#34D399" : totalCount ? "#F87171" : "#9CA3AF",
-                border:     `1px solid ${isQualified ? "#059669" : totalCount ? "#DC2626" : "#374151"}`,
+                background: isQualified ? C.passBg : totalCount ? C.failBg : "var(--bg-hover)",
+                color:      isQualified ? C.passText : totalCount ? C.failText : "var(--text-secondary)",
+                border:     `1px solid ${isQualified ? C.passSolid : totalCount ? C.failSolid : "var(--border-active)"}`,
                 letterSpacing: "0.06em", whiteSpace: "nowrap",
               }}>
                 {isQualified ? "QUALIFIED" : totalCount ? "DISQUALIFIED" : "PENDING"}
               </span>
             </div>
-            <div style={{ fontSize: 12, color: "#6B7280", marginTop: 2 }}>
+            <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginTop: 2 }}>
               Bidder Analysis · {totalCount} criteria evaluated
             </div>
           </div>
           <button
             onClick={onClose}
             style={{
-              background: "#1F2937", border: "1px solid #374151", borderRadius: 8,
-              color: "#9CA3AF", cursor: "pointer", padding: "6px 16px",
+              background: "var(--bg-hover)", border: "1px solid var(--border-active)", borderRadius: 8,
+              color: "var(--text-secondary)", cursor: "pointer", padding: "6px 16px",
               display: "flex", alignItems: "center", gap: 6,
               fontSize: 13, fontWeight: 600, flexShrink: 0,
             }}
@@ -234,7 +235,7 @@ export default function BidderInsightPanel({ jobId, bidderFileId, bidderName, on
         {/* ── Section Nav Bar ── */}
         <div style={{
           position: "sticky", top: 64, zIndex: 9,
-          background: "#111827", borderBottom: "1px solid #1E2A3B",
+          background: "var(--bg-secondary)", borderBottom: "1px solid var(--border-subtle)",
           padding: "0 32px", display: "flex", alignItems: "center", gap: 4,
           height: 44, flexShrink: 0, overflowX: "auto",
         }}>
@@ -246,9 +247,9 @@ export default function BidderInsightPanel({ jobId, bidderFileId, bidderName, on
                 document.getElementById(`panel-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
               }}
               style={{
-                background: activeSection === id ? "#1E3A5F" : "none",
+                background: activeSection === id ? "var(--accent-muted)" : "none",
                 border: activeSection === id ? `1px solid ${accentBlue}40` : "1px solid transparent",
-                borderRadius: 6, color: activeSection === id ? accentBlue : "#6B7280",
+                borderRadius: 6, color: activeSection === id ? accentBlue : "var(--text-tertiary)",
                 cursor: "pointer", padding: "4px 14px",
                 fontSize: 12, fontWeight: activeSection === id ? 600 : 400,
                 transition: "color 0.15s, background 0.15s", whiteSpace: "nowrap",
@@ -273,7 +274,7 @@ export default function BidderInsightPanel({ jobId, bidderFileId, bidderName, on
                 { label: "Total",      value: totalCount,    color: "#9CA3AF" },
               ] as const).map((m) => (
                 <div key={m.label} style={{ flex: "1 1 140px", ...CHART_CARD, padding: "16px 20px" }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: "#4B5563", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>{m.label}</div>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>{m.label}</div>
                   <div style={{ fontSize: 28, fontWeight: 800, color: m.color, fontFamily: "JetBrains Mono, monospace", lineHeight: 1 }}>{m.value}</div>
                 </div>
               ))}
@@ -283,70 +284,70 @@ export default function BidderInsightPanel({ jobId, bidderFileId, bidderName, on
           {/* ─── C: VERDICT BANNER ─── */}
           {totalCount > 0 && (
             <div style={{
-              background: isQualified ? "#064E3B" : "#450A0A",
-              border:     `1px solid ${isQualified ? "#059669" : "#DC2626"}`,
+              background: isQualified ? C.passBg : C.failBg,
+              border:     `1px solid ${isQualified ? C.passSolid : C.failSolid}`,
               borderRadius: 12, padding: "16px 24px",
               display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12,
             }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 {isQualified ? <CheckCircle2 size={20} color="#34D399" /> : <XCircle size={20} color="#F87171" />}
-                <span style={{ fontSize: 14, fontWeight: 700, color: isQualified ? "#34D399" : "#F87171" }}>
+                <span style={{ fontSize: 14, fontWeight: 700, color: isQualified ? C.passText : C.failText }}>
                   {isQualified ? "✓ Eligible Bidder — All criteria satisfied" : `✗ Not Eligible${failedLabels.length ? ` — ${failedLabels.join(", ")}` : ""}`}
                 </span>
               </div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 {(["financial", "technical", "compliance", "certification"] as const).map((cat) => {
                   const v = scores[cat]; if (!v) return null;
-                  return <span key={cat} style={{ fontSize: 11, fontWeight: 700, padding: "4px 10px", background: "rgba(0,0,0,0.3)", borderRadius: 20, color: v >= 80 ? "#34D399" : v >= 60 ? "#60A5FA" : "#F87171", border: "1px solid rgba(255,255,255,0.1)", textTransform: "capitalize" }}>{cat.slice(0, 5)}: {v}</span>;
+                  return <span key={cat} style={{ fontSize: 11, fontWeight: 700, padding: "4px 10px", background: "rgba(0,0,0,0.08)", borderRadius: 20, color: v >= 80 ? C.passSolid : v >= 60 ? accentBlue : C.failSolid, border: `1px solid ${v >= 80 ? C.passSolid : v >= 60 ? accentBlue : C.failSolid}30`, textTransform: "capitalize" }}>{cat.slice(0, 5)}: {v}</span>;
                 })}
               </div>
             </div>
           )}
 
           {/* ─── D: ANALYSIS HEADER ─── */}
-          <div id="panel-analysis" style={{ scrollMarginTop: 112, paddingBottom: 10, borderBottom: "1px solid #1E2A3B" }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: "#4B5563", letterSpacing: "0.12em", textTransform: "uppercase" }}>Analysis</div>
+          <div id="panel-analysis" style={{ scrollMarginTop: 112, paddingBottom: 10, borderBottom: "1px solid var(--border-subtle)" }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-tertiary)", letterSpacing: "0.12em", textTransform: "uppercase" }}>Analysis</div>
           </div>
 
           {/* ─── E: THREE CHARTS ─── */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, overflow: "hidden" }}>
             {/* Radar */}
             <div style={CHART_CARD}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: "#9CA3AF", marginBottom: 12 }}>Performance Radar</div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 12 }}>Performance Radar</div>
               <ResponsiveContainer width="100%" height={220}>
                 <RadarChart data={radarData} margin={{ top: 12, right: 32, bottom: 12, left: 32 }}>
-                  <PolarGrid stroke="#1E2A3B" />
-                  <PolarAngleAxis dataKey="subject" tick={{ fontSize: 11, fill: "#9CA3AF" }} />
+                  <PolarGrid stroke="var(--border-subtle)" />
+                  <PolarAngleAxis dataKey="subject" tick={{ fontSize: 11, fill: "var(--text-secondary)" }} />
                   <PolarRadiusAxis angle={90} domain={[0, 100]} tick={false} axisLine={false} />
                   <Radar name={bidderName} dataKey="score" stroke={accentBlue} fill={accentBlue} fillOpacity={0.25} dot={{ r: 3, fill: accentBlue } as any} />
-                  <Tooltip contentStyle={{ background: "#1F2937", border: "1px solid #374151", borderRadius: 6, fontSize: 11 }} labelStyle={{ color: "#9CA3AF" }} itemStyle={{ color: "#F9FAFB" }} formatter={(v: any) => [`${v}`, "Score"]} />
+                  <Tooltip contentStyle={{ background: "var(--tooltip-bg)", border: "1px solid var(--tooltip-border)", borderRadius: 6, fontSize: 11 }} labelStyle={{ color: "var(--text-secondary)" }} itemStyle={{ color: "var(--text-primary)" }} formatter={(v: any) => [`${v}`, "Score"]} />
                 </RadarChart>
               </ResponsiveContainer>
             </div>
 
             <div style={CHART_CARD}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: "#9CA3AF", marginBottom: 12 }}>vs All Bidders</div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 12 }}>vs All Bidders</div>
 
               {compBarData.length > 0 ? (
                 <ResponsiveContainer width="100%" height={220}>
                   <BarChart data={compBarData} margin={{ top: 4, right: 8, bottom: 40, left: 8 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#1E2A3B" vertical={false} />
-                    <XAxis dataKey="name" tick={{ fontSize: 10, fill: "#6B7280" }} angle={-35} textAnchor="end" interval={0} />
-                    <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: "#6B7280" }} width={28} />
-                    <Tooltip contentStyle={{ background: "#1F2937", border: "1px solid #374151", borderRadius: 6, fontSize: 11 }} formatter={(v: any) => [`${v}`, "Score"]} />
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" vertical={false} />
+                    <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--text-tertiary)" }} angle={-35} textAnchor="end" interval={0} />
+                    <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: "var(--text-tertiary)" }} width={28} />
+                    <Tooltip contentStyle={{ background: "var(--tooltip-bg)", border: "1px solid var(--tooltip-border)", borderRadius: 6, fontSize: 11 }} formatter={(v: any) => [`${v}`, "Score"]} />
                     <Bar dataKey="score" radius={[4, 4, 0, 0]} maxBarSize={40}>
-                      {compBarData.map((e, i) => <Cell key={i} fill={e.isThis ? accentBlue : "#374151"} />)}
+                      {compBarData.map((e, i) => <Cell key={i} fill={e.isThis ? accentBlue : "var(--border-active)"} />)}
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               ) : (
-                <div style={{ height: 220, display: "flex", alignItems: "center", justifyContent: "center", color: "#4B5563", fontSize: 12 }}>No comparison data</div>
+                <div style={{ height: 220, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-tertiary)", fontSize: 12 }}>No comparison data</div>
               )}
             </div>
 
             {/* Confidence Donut */}
             <div style={{ ...CHART_CARD, display: "flex", flexDirection: "column" }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: "#9CA3AF", marginBottom: 12 }}>Confidence Distribution</div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 12 }}>Confidence Distribution</div>
               <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
                 <div style={{ flex: "0 0 160px", position: "relative" }}>
                   <ResponsiveContainer width="100%" height={160}>
@@ -354,12 +355,12 @@ export default function BidderInsightPanel({ jobId, bidderFileId, bidderName, on
                       <Pie data={trustDist.length ? trustDist : [{ name: "—", value: 1, color: "#1F2937" }]} cx="50%" cy="50%" innerRadius={50} outerRadius={72} dataKey="value" strokeWidth={0} animationBegin={0} animationDuration={600}>
                         {(trustDist.length ? trustDist : [{ name: "—", value: 1, color: "#1F2937" }]).map((e, i) => <Cell key={i} fill={e.color} />)}
                       </Pie>
-                      <Tooltip contentStyle={{ background: "#1F2937", border: "1px solid #374151", borderRadius: 6, fontSize: 11 }} />
+                      <Tooltip contentStyle={{ background: "var(--tooltip-bg)", border: "1px solid var(--tooltip-border)", borderRadius: 6, fontSize: 11 }} />
                     </PieChart>
                   </ResponsiveContainer>
                   <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
-                    <div style={{ fontSize: 22, fontWeight: 800, color: "#F9FAFB", fontFamily: "JetBrains Mono, monospace" }}>{totalCount}</div>
-                    <div style={{ fontSize: 10, color: "#6B7280" }}>criteria</div>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: "var(--text-primary)", fontFamily: "JetBrains Mono, monospace" }}>{totalCount}</div>
+                    <div style={{ fontSize: 10, color: "var(--text-tertiary)" }}>criteria</div>
                   </div>
                 </div>
                 <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 10 }}>
@@ -367,9 +368,9 @@ export default function BidderInsightPanel({ jobId, bidderFileId, bidderName, on
                     <div key={d.name} style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         <div style={{ width: 8, height: 8, borderRadius: 2, background: d.color, flexShrink: 0 }} />
-                        <span style={{ fontSize: 11, color: "#6B7280" }}>{d.name}</span>
+                        <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{d.name}</span>
                       </div>
-                      <span style={{ fontSize: 11, fontFamily: "JetBrains Mono, monospace", color: "#F9FAFB", fontWeight: 600 }}>{totalCount ? Math.round(d.value / totalCount * 100) : 0}%</span>
+                      <span style={{ fontSize: 11, fontFamily: "JetBrains Mono, monospace", color: "var(--text-primary)", fontWeight: 600 }}>{totalCount ? Math.round(d.value / totalCount * 100) : 0}%</span>
                     </div>
                   ))}
                 </div>
@@ -378,21 +379,21 @@ export default function BidderInsightPanel({ jobId, bidderFileId, bidderName, on
           </div>
 
           {/* ─── F: CRITERIA ANALYSIS HEADER ─── */}
-          <div id="panel-criteria" style={{ scrollMarginTop: 112, paddingBottom: 10, borderBottom: "1px solid #1E2A3B" }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: "#4B5563", letterSpacing: "0.12em", textTransform: "uppercase" }}>Criteria Analysis</div>
+          <div id="panel-criteria" style={{ scrollMarginTop: 112, paddingBottom: 10, borderBottom: "1px solid var(--border-subtle)" }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-tertiary)", letterSpacing: "0.12em", textTransform: "uppercase" }}>Criteria Analysis</div>
           </div>
 
           {/* ─── G: SCORE vs THRESHOLD ─── */}
           {criteriaBarData.length > 0 && (
             <div style={CHART_CARD}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: "#9CA3AF", marginBottom: 16 }}>Score vs Threshold</div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 16 }}>Score vs Threshold</div>
               <ResponsiveContainer width="100%" height={Math.max(200, criteriaBarData.length * 34)}>
                 <BarChart layout="vertical" data={criteriaBarData} margin={{ top: 4, right: 48, bottom: 4, left: 8 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1E2A3B" horizontal={false} />
-                  <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 10, fill: "#6B7280" }} />
-                  <YAxis type="category" dataKey="label" tick={{ fontSize: 10, fill: "#9CA3AF" }} width={168} />
-                  <Tooltip contentStyle={{ background: "#1F2937", border: "1px solid #374151", borderRadius: 6, fontSize: 11 }} formatter={(v: any) => [`${v}%`, "Score"]} />
-                  <ReferenceLine x={85} stroke="#4B5563" strokeDasharray="4 4" label={{ value: "85%", position: "insideTopRight", fill: "#6B7280", fontSize: 10 }} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" horizontal={false} />
+                  <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 10, fill: "var(--text-tertiary)" }} />
+                  <YAxis type="category" dataKey="label" tick={{ fontSize: 10, fill: "var(--text-secondary)" }} width={168} />
+                  <Tooltip contentStyle={{ background: "var(--tooltip-bg)", border: "1px solid var(--tooltip-border)", borderRadius: 6, fontSize: 11 }} formatter={(v: any) => [`${v}%`, "Score"]} />
+                  <ReferenceLine x={85} stroke="var(--border-active)" strokeDasharray="4 4" label={{ value: "85%", position: "insideTopRight", fill: "var(--text-tertiary)", fontSize: 10 }} />
                   <Bar dataKey="score" radius={[0, 4, 4, 0]} maxBarSize={20}>
                     {criteriaBarData.map((e, i) => (
                       <Cell key={i} fill={e.verdict === "pass" ? "#059669" : e.verdict === "fail" ? "#DC2626" : "#D97706"} />
@@ -408,9 +409,9 @@ export default function BidderInsightPanel({ jobId, bidderFileId, bidderName, on
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16 }}>
               {catCards.map((c) => (
                 <div key={c.cat} style={CHART_CARD}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>{c.label}</div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>{c.label}</div>
                   <div style={{ fontSize: 28, fontWeight: 800, fontFamily: "JetBrains Mono, monospace", lineHeight: 1, marginBottom: 10, color: c.score >= 80 ? "#34D399" : c.score >= 60 ? "#60A5FA" : "#F87171" }}>{c.score}</div>
-                  <div style={{ height: 4, background: "#1F2937", borderRadius: 2, marginBottom: 10, overflow: "hidden" }}>
+                  <div style={{ height: 4, background: "var(--bg-hover)", borderRadius: 2, marginBottom: 10, overflow: "hidden" }}>
                     <div style={{ height: "100%", width: `${c.score}%`, background: c.score >= 80 ? "#059669" : c.score >= 60 ? accentBlue : "#DC2626", borderRadius: 2, transition: "width 0.6s ease" }} />
                   </div>
                   <div style={{ display: "flex", gap: 12, fontSize: 11 }}>

@@ -17,7 +17,8 @@ import StatusTracker from "../components/ui/StatusTracker";
 import TrustBar from "../components/ui/TrustBar";
 import EmptyState from "../components/ui/EmptyState";
 import { CardSkeleton } from "../components/ui/Card";
-import type { FileRecord, FileType, CriterionDetail, CriterionInsight, EvalResultRow, ReviewActionRead, BidderEntry, BidderEvalSummary } from "../services/types";
+import PdfViewerModal, { type EvidenceContext } from "../components/pdf/PdfViewerModal";
+import type { FileRecord, FileType, CriterionDetail, CriterionInsight, EvalResultRow, ReviewActionRead, BidderEntry, BidderEvalSummary, ExtractionRow } from "../services/types";
 
 // ── Right side panel ─────────────────────────────────────────────────────────
 function RightPanel({ job, evalData, criteriaCount, reviewCount, onExportReport, onExportAudit }: {
@@ -109,14 +110,22 @@ function RightPanel({ job, evalData, criteriaCount, reviewCount, onExportReport,
 }
 
 // ── Expandable criterion row ──────────────────────────────────────────────────
-function CriterionRow({ criterion, detail, evalRow, reviews, jobId, onRefresh, onViewInDocument }: {
+function CriterionRow({ criterion, detail, evalRow, extraction, bidderFileName, reviews, jobId, onRefresh, onViewInDocument }: {
   criterion: CriterionInsight;
   detail?: CriterionDetail;
   evalRow?: EvalResultRow;
+  extraction?: ExtractionRow;
+  bidderFileName?: string;
   reviews: ReviewActionRead[];
   jobId: string;
   onRefresh: () => void;
-  onViewInDocument?: (fileId: string, page: number, snippet: string, fileName?: string) => void;
+  onViewInDocument?: (
+    fileId: string,
+    page: number,
+    snippet: string,
+    fileName?: string,
+    evidence?: EvidenceContext,
+  ) => void;
 }) {
   const [open,      setOpen]      = useState(false);
   const [action,    setAction]    = useState<"approve"|"edit"|"reject"|null>(null);
@@ -227,11 +236,11 @@ function CriterionRow({ criterion, detail, evalRow, reviews, jobId, onRefresh, o
       {open && (
         <div className="expand" style={{ background: C.bgPrimary, padding: SP.lg, display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: SP.lg, borderTop: `1px solid ${C.borderSubtle}` }}>
 
-          {/* Panel 1 — Evidence */}
+          {/* Panel 1 — Evidence (bidder-realistic, not tender raw text) */}
           <div>
             <div style={{ fontSize: 11, fontWeight: 700, color: C.textTertiary, letterSpacing: 1, marginBottom: SP.md, textTransform: "uppercase" }}>Source Evidence</div>
 
-            {/* Source location card */}
+            {/* Source location card — bidder file & extracted value, not tender data */}
             <div style={{
               background: C.bgTertiary, border: `1px solid ${C.borderSubtle}`,
               borderRadius: 6, padding: SP.md, marginBottom: SP.md,
@@ -241,9 +250,15 @@ function CriterionRow({ criterion, detail, evalRow, reviews, jobId, onRefresh, o
                 <span style={{ fontSize: 11, fontWeight: 600, color: C.accentText, textTransform: "uppercase", letterSpacing: "0.06em" }}>Source Location</span>
               </div>
               {[
-                { label: "Document", value: (detail as any)?.source_document ?? "Document on file" },
-                { label: "Page",     value: (detail as any)?.page_number != null ? `Page ${(detail as any).page_number}` : "—" },
-                { label: "Section",  value: (detail as any)?.section ?? "—" },
+                { label: "Bidder",   value: criterion.bidder_name ?? bidderFileName ?? "—" },
+                { label: "Document", value: bidderFileName ?? "—" },
+                { label: "Field",    value: extraction?.field_name ?? "—" },
+                {
+                  label: "Value",
+                  value: extraction && !extraction.not_found
+                    ? `${extraction.parsed_value ?? "—"}${extraction.unit ? " " + extraction.unit : ""}`
+                    : "Not found",
+                },
               ].map(({ label, value }) => (
                 <div key={label} style={{ display: "flex", gap: SP.sm, alignItems: "baseline", marginBottom: 3 }}>
                   <span style={{ fontSize: 11, color: C.textTertiary, minWidth: 64 }}>{label}:</span>
@@ -251,30 +266,36 @@ function CriterionRow({ criterion, detail, evalRow, reviews, jobId, onRefresh, o
                 </div>
               ))}
 
-              {/* Confidence bar */}
+              {/* Extraction confidence — true LLM/regex confidence, not eval score */}
               <div style={{ display: "flex", gap: SP.sm, alignItems: "center", marginTop: SP.sm }}>
                 <span style={{ fontSize: 11, color: C.textTertiary, minWidth: 64 }}>Confidence:</span>
                 <div style={{ flex: 1, height: 5, background: C.bgPrimary, borderRadius: 3, overflow: "hidden", maxWidth: 72 }}>
                   <div style={{
                     height: "100%",
-                    width: `${(evalRow?.score ?? 0.5) * 100}%`,
-                    background: (evalRow?.score ?? 0.5) >= 0.80 ? C.passSolid : (evalRow?.score ?? 0.5) >= 0.55 ? C.uncertainSolid : C.failSolid,
+                    width: `${(extraction?.extraction_confidence ?? evalRow?.score ?? 0.5) * 100}%`,
+                    background: (extraction?.extraction_confidence ?? evalRow?.score ?? 0.5) >= 0.80
+                      ? C.passSolid
+                      : (extraction?.extraction_confidence ?? evalRow?.score ?? 0.5) >= 0.55
+                      ? C.uncertainSolid
+                      : C.failSolid,
                     borderRadius: 3,
                     transition: "width 0.4s",
                   }} />
                 </div>
                 <span style={{ fontSize: 11, fontFamily: "JetBrains Mono, monospace", color: C.textSecondary, fontWeight: 600 }}>
-                  {Math.round((evalRow?.score ?? 0.5) * 100)}%
+                  {Math.round((extraction?.extraction_confidence ?? evalRow?.score ?? 0.5) * 100)}%
                 </span>
               </div>
             </div>
 
-            {/* Highlighted snippet */}
-            {detail?.source_snippet ? (
+            {/* Highlighted snippet — from BIDDER doc (not tender) */}
+            {extraction?.source_snippet ? (
               <div>
                 <div style={{ fontSize: 11, color: C.textTertiary, marginBottom: SP.xs, display: "flex", alignItems: "center", gap: SP.xs }}>
-                  <span>Extracted text</span>
-                  <span style={{ fontSize: 10, background: C.accentMuted, color: C.accentText, padding: "1px 5px", borderRadius: 3, fontWeight: 600 }}>matched</span>
+                  <span>Extracted from bidder document</span>
+                  <span style={{ fontSize: 10, background: C.accentMuted, color: C.accentText, padding: "1px 5px", borderRadius: 3, fontWeight: 600 }}>
+                    {extraction.not_found ? "no match" : "matched"}
+                  </span>
                 </div>
                 <div style={{
                   position: "relative",
@@ -295,39 +316,51 @@ function CriterionRow({ criterion, detail, evalRow, reviews, jobId, onRefresh, o
                     padding: "1px 3px",
                     fontWeight: 600,
                   }}>
-                    {detail.source_snippet}
+                    {extraction.source_snippet}
                   </span>
                 </div>
-                {detail.description && (
+                {detail?.description && (
                   <p style={{ fontSize: 12, color: C.textTertiary, marginTop: SP.sm, lineHeight: 1.5 }}>
                     {detail.description}
                   </p>
                 )}
 
-                {/* View in Document button */}
-                {(detail as any)?.page_number != null && (
+                {/* View Document — opens PDF viewer at the matched page */}
+                {extraction.file_id && (
                   <div style={{ marginTop: SP.md }}>
                     <button
                       onClick={() => onViewInDocument?.(
-                        (detail as any)?.source_file_id ?? "",
-                        (detail as any).page_number,
-                        detail?.source_snippet ?? "",
-                        (detail as any)?.source_document ?? "Document",
+                        extraction.file_id,
+                        extraction.page_number ?? 1,
+                        extraction.source_snippet ?? "",
+                        bidderFileName,
+                        {
+                          criterionLabel: detail?.label ?? criterion.criterion_id,
+                          verdict:        evalRow?.verdict,
+                          score:          evalRow ? Math.round(evalRow.score * 100) : undefined,
+                          explanation:    evalRow?.explanation,
+                          mandatory:      detail?.mandatory,
+                          threshold:      detail?.threshold_value != null
+                                            ? `${detail.threshold_value}${detail.threshold_unit ?? ""}`
+                                            : undefined,
+                        },
                       )}
-                      disabled={!onViewInDocument || !(detail as any)?.source_file_id}
+                      disabled={!onViewInDocument}
                       style={{
-                        display: "inline-flex", alignItems: "center", gap: SP.xs,
-                        fontSize: 11, fontWeight: 600,
-                        color: C.accentText,
-                        background: C.accentMuted,
-                        border: `1px solid ${C.accent}40`,
-                        borderRadius: 5,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "6px",
                         padding: "4px 10px",
+                        background: "transparent",
+                        border: `1px solid ${C.borderActive}`,
+                        borderRadius: "6px",
+                        color: C.accentText,
+                        fontSize: "12px",
                         cursor: "pointer",
                       }}
                     >
-                      <ExternalLink size={11} />
-                      Page {(detail as any).page_number}
+                      <ExternalLink size={12} />
+                      View Document{extraction.page_number ? ` · Page ${extraction.page_number}` : ""}
                     </button>
                   </div>
                 )}
@@ -337,7 +370,9 @@ function CriterionRow({ criterion, detail, evalRow, reviews, jobId, onRefresh, o
                 fontSize: 12, color: C.textTertiary, fontStyle: "italic",
                 padding: SP.md, background: C.bgTertiary, borderRadius: 6, textAlign: "center",
               }}>
-                No source snippet extracted for this criterion
+                {extraction?.not_found
+                  ? "Bidder document does not contain this criterion's value"
+                  : "No extraction available — pipeline may still be running"}
               </div>
             )}
           </div>
@@ -461,12 +496,26 @@ export default function JobDetailPage() {
   const [bidderFilter,   setBidderFilter]   = useState<string>("all");
   const [documentViewer, setDocumentViewer] = useState<{
     fileId: string; fileName: string; page: number; snippet: string; open: boolean;
+    evidence?: EvidenceContext;
   } | null>(null);
 
-  const handleViewInDocument = (fileId: string | undefined, page: number | undefined, snippet: string | undefined, fileName?: string) => {
-    if (!fileId || !page) return;
-    setActiveTab("documents");
-    setDocumentViewer({ fileId, fileName: fileName ?? "Document", page, snippet: snippet ?? "", open: true });
+  const handleViewInDocument = (
+    fileId: string | undefined,
+    page: number | undefined,
+    snippet: string | undefined,
+    fileName?: string,
+    evidence?: EvidenceContext,
+  ) => {
+    if (!fileId) return;
+    // Modal floats over the page; no tab change needed (user keeps context).
+    setDocumentViewer({
+      fileId,
+      fileName: fileName ?? "Document",
+      page: page ?? 1,
+      snippet: snippet ?? "",
+      open: true,
+      evidence,
+    });
   };
 
   const enabled = !!jobId;
@@ -505,6 +554,14 @@ export default function JobDetailPage() {
   const { data: criteriaResp } = useQuery({
     queryKey: ["criteria", jobId],
     queryFn:  () => analyzeApi.getCriteria(jobId!),
+    enabled:  enabled && isCompleted,
+  });
+
+  // Per-bidder extractions — provides realistic source snippet, parsed value,
+  // confidence, and bidder file_id for the "View in Document" button.
+  const { data: extractionsResp } = useQuery({
+    queryKey: ["extractions", jobId],
+    queryFn:  () => analyzeApi.getExtractions(jobId!),
     enabled:  enabled && isCompleted,
   });
 
@@ -583,6 +640,33 @@ export default function JobDetailPage() {
   );
   // Fallback single-bidder map
   const evalRowMapById = Object.fromEntries(evalRows.map((r) => [r.criterion_id, r]));
+
+  // Bidder-realistic extraction lookup — prefer found rows with highest confidence
+  const extractionRows = extractionsResp?.data ?? [];
+  const extractionMap: Record<string, typeof extractionRows[number]> = {};
+  for (const e of extractionRows) {
+    const key = `${e.criterion_id}__${e.file_id}`;
+    const existing = extractionMap[key];
+    const isBetter =
+      !existing ||
+      (existing.not_found && !e.not_found) ||
+      (!e.not_found && e.extraction_confidence > existing.extraction_confidence);
+    if (isBetter) extractionMap[key] = e;
+  }
+  // Single-bidder fallback: keyed by criterion_id only
+  const extractionMapById: Record<string, typeof extractionRows[number]> = {};
+  for (const e of extractionRows) {
+    const existing = extractionMapById[e.criterion_id];
+    const isBetter =
+      !existing ||
+      (existing.not_found && !e.not_found) ||
+      (!e.not_found && e.extraction_confidence > existing.extraction_confidence);
+    if (isBetter) extractionMapById[e.criterion_id] = e;
+  }
+  // File ID → original name (for "Source Document" display)
+  const bidderFileNameMap = Object.fromEntries(
+    bidderFiles.map((f) => [f.id, f.original_name])
+  );
 
   // Extract unique bidders from dashboard criteria
   const allCriteria = dashboard?.criteria ?? [];
@@ -791,12 +875,22 @@ export default function JobDetailPage() {
                       const evalRow =
                         evalRowMap[rowKey] ??
                         evalRowMapById[c.criterion_id];
+                      const extraction =
+                        (c.bidder_file_id ? extractionMap[`${c.criterion_id}__${c.bidder_file_id}`] : undefined) ??
+                        extractionMapById[c.criterion_id];
+                      const bidderFileName =
+                        (extraction && bidderFileNameMap[extraction.file_id]) ||
+                        (c.bidder_file_id && bidderFileNameMap[c.bidder_file_id]) ||
+                        c.bidder_name ||
+                        "Bidder document";
                       return (
                         <CriterionRow
                           key={rowKey}
                           criterion={c}
                           detail={detailMap[c.criterion_id]}
                           evalRow={evalRow}
+                          extraction={extraction}
+                          bidderFileName={bidderFileName}
                           reviews={reviewList}
                           jobId={jobId!}
                           onRefresh={invalidateAll}
@@ -832,54 +926,6 @@ export default function JobDetailPage() {
                 onUploadBidder={() => bidderInputRef.current?.click()}
                 onDownload={handleFileDownload}
               />
-              {/* Evidence viewer panel — opens when "View in Document" is clicked */}
-              {documentViewer?.open && (
-                <div style={{
-                  background: "#1C2333",
-                  border: `1px solid ${C.borderActive}`,
-                  borderRadius: 8,
-                  padding: SP.lg,
-                  marginTop: SP.lg,
-                }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: SP.md }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: C.textPrimary, display: "flex", alignItems: "center", gap: SP.sm }}>
-                      <BookOpen size={14} color={C.accentText} />
-                      Source Evidence
-                    </div>
-                    <button
-                      onClick={() => setDocumentViewer(null)}
-                      style={{ background: "none", border: "none", color: C.textTertiary, cursor: "pointer", fontSize: 12 }}
-                    >
-                      ✕ Close
-                    </button>
-                  </div>
-                  <div style={{ color: C.textTertiary, fontSize: 12, marginBottom: SP.sm }}>
-                    {documentViewer.fileName} — Page {documentViewer.page}
-                  </div>
-                  {documentViewer.snippet ? (
-                    <div style={{
-                      background: "#0B0F1A",
-                      border: `1px solid ${C.accent}40`,
-                      borderLeft: `3px solid ${C.accent}`,
-                      padding: SP.md,
-                      fontFamily: "JetBrains Mono, monospace",
-                      fontSize: 13,
-                      color: "#F9FAFB",
-                      lineHeight: 1.6,
-                      borderRadius: "0 6px 6px 0",
-                    }}>
-                      {documentViewer.snippet}
-                    </div>
-                  ) : (
-                    <div style={{ color: C.textTertiary, fontSize: 12, fontStyle: "italic" }}>
-                      No source snippet available for this criterion.
-                    </div>
-                  )}
-                  <div style={{ marginTop: SP.sm, color: C.textTertiary, fontSize: 11 }}>
-                    Evidence extracted from page {documentViewer.page}
-                  </div>
-                </div>
-              )}
             </div>
           )}
 
@@ -909,6 +955,17 @@ export default function JobDetailPage() {
         onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadMut.mutate({ file: f, type: "tender" }); e.target.value = ""; }} />
       <input ref={bidderInputRef} type="file" accept=".pdf,.docx,.jpg,.png" style={{ display: "none" }}
         onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadMut.mutate({ file: f, type: "bidder" }); e.target.value = ""; }} />
+
+      {/* Focused Evidence Viewer — floats over the entire page; deep-links to the matched evidence */}
+      <PdfViewerModal
+        open={!!documentViewer?.open}
+        fileId={documentViewer?.fileId ?? null}
+        fileName={documentViewer?.fileName}
+        page={documentViewer?.page ?? 1}
+        snippet={documentViewer?.snippet}
+        evidence={documentViewer?.evidence}
+        onClose={() => setDocumentViewer(null)}
+      />
 
     </div>
   );
@@ -940,9 +997,7 @@ function FinalDecisionPanel({ dashboard, criteriaDetails, evalBidders }: {
     new Map(dashboard.criteria.map((c: any) => [c.criterion_id, c])).values()
   );
 
-  const bg = overallQualified
-    ? "linear-gradient(135deg, #052e16 0%, #064E3B 100%)"
-    : "linear-gradient(135deg, #450a0a 0%, #7f1d1d 100%)";
+  const bg = overallQualified ? C.passBg : C.failBg;
   const borderColor = overallQualified ? C.passSolid + "40" : C.failSolid + "40";
 
   return (
@@ -951,7 +1006,7 @@ function FinalDecisionPanel({ dashboard, criteriaDetails, evalBidders }: {
 
         {/* Column 1: Verdict — per bidder when multi-bidder */}
         <div>
-          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", letterSpacing: 1, marginBottom: SP.sm, textTransform: "uppercase" }}>
+          <div style={{ fontSize: 11, color: C.textTertiary, letterSpacing: 1, marginBottom: SP.sm, textTransform: "uppercase" }}>
             {isMultiBidder ? "Bidder Verdicts" : "Overall Eligibility Verdict"}
           </div>
           {isMultiBidder ? (
@@ -964,14 +1019,14 @@ function FinalDecisionPanel({ dashboard, criteriaDetails, evalBidders }: {
                 return (
                   <div key={i} style={{
                     display: "flex", alignItems: "center", justifyContent: "space-between",
-                    background: "rgba(255,255,255,0.06)", borderRadius: 6, padding: `${SP.sm}px ${SP.md}px`,
+                    background: "rgba(0,0,0,0.04)", borderRadius: 6, padding: `${SP.sm}px ${SP.md}px`,
                     border: `1px solid ${isQ ? C.passSolid + "30" : C.failSolid + "30"}`,
                   }}>
                     <div>
-                      <div style={{ fontSize: 12, color: "#fff", fontWeight: 600, marginBottom: 2 }}>
+                      <div style={{ fontSize: 12, color: C.textPrimary, fontWeight: 600, marginBottom: 2 }}>
                         {bName}
                       </div>
-                      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)" }}>
+                      <div style={{ fontSize: 11, color: C.textTertiary }}>
                         Score: {Math.round(bScore * 100)}
                       </div>
                     </div>
@@ -992,7 +1047,7 @@ function FinalDecisionPanel({ dashboard, criteriaDetails, evalBidders }: {
                   className="text-base h-8 px-3.5 tracking-wider"
                 />
               </div>
-              <div style={{ fontSize: 13, color: "rgba(255,255,255,0.6)" }}>
+              <div style={{ fontSize: 13, color: C.textTertiary }}>
                 {s.pass} of {s.total_criteria} mandatory criteria passed
               </div>
             </>
@@ -1001,7 +1056,7 @@ function FinalDecisionPanel({ dashboard, criteriaDetails, evalBidders }: {
 
         {/* Column 2: Score breakdown — per bidder bars when multi-bidder */}
         <div>
-          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", letterSpacing: 1, marginBottom: SP.sm, textTransform: "uppercase" }}>Score Breakdown</div>
+          <div style={{ fontSize: 11, color: C.textTertiary, letterSpacing: 1, marginBottom: SP.sm, textTransform: "uppercase" }}>Score Breakdown</div>
           {isMultiBidder ? (
             <div style={{ display: "flex", flexDirection: "column", gap: SP.sm }}>
               {bidders.map((b: any, i: number) => {
@@ -1011,14 +1066,14 @@ function FinalDecisionPanel({ dashboard, criteriaDetails, evalBidders }: {
                 const pct = Math.round(bScore * 100);
                 return (
                   <div key={i}>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "rgba(255,255,255,0.5)", marginBottom: 3 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: C.textTertiary, marginBottom: 3 }}>
                       <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 120 }}>
                         {(b.bidder_name || "Bidder").replace(/\.pdf$/i, "")}
                       </span>
                       <span style={{ fontFamily: "JetBrains Mono, monospace", fontWeight: 700,
                         color: isQ ? C.passText : C.failText }}>{pct}</span>
                     </div>
-                    <div style={{ height: 6, background: "rgba(255,255,255,0.1)", borderRadius: 3, overflow: "hidden" }}>
+                    <div style={{ height: 6, background: "var(--border-subtle)", borderRadius: 3, overflow: "hidden" }}>
                       <div style={{ height: "100%", width: `${pct}%`,
                         background: isQ ? C.passSolid : C.failSolid, transition: "width 0.4s" }} />
                     </div>
@@ -1028,16 +1083,16 @@ function FinalDecisionPanel({ dashboard, criteriaDetails, evalBidders }: {
             </div>
           ) : (
             <>
-              <div style={{ fontSize: 42, fontWeight: 800, fontFamily: "JetBrains Mono, monospace", color: "#fff", lineHeight: 1 }}>
+              <div style={{ fontSize: 42, fontWeight: 800, fontFamily: "JetBrains Mono, monospace", color: C.textPrimary, lineHeight: 1 }}>
                 {Math.round(s.final_score * 100)}
               </div>
-              <div style={{ fontSize: 13, color: "rgba(255,255,255,0.5)", marginBottom: SP.md }}>/100</div>
-              <div style={{ height: 8, background: "rgba(255,255,255,0.1)", borderRadius: 4, overflow: "hidden", display: "flex", marginBottom: SP.sm }}>
+              <div style={{ fontSize: 13, color: C.textTertiary, marginBottom: SP.md }}>/100</div>
+              <div style={{ height: 8, background: "var(--border-subtle)", borderRadius: 4, overflow: "hidden", display: "flex", marginBottom: SP.sm }}>
                 <div style={{ width: `${s.total_criteria > 0 ? (s.pass / s.total_criteria) * 100 : 0}%`, background: C.passSolid }} />
                 <div style={{ width: `${s.total_criteria > 0 ? (s.fail / s.total_criteria) * 100 : 0}%`, background: C.failSolid }} />
                 <div style={{ flex: 1, background: C.uncertainSolid + "60" }} />
               </div>
-              <div style={{ display: "flex", gap: SP.md, fontSize: 11, color: "rgba(255,255,255,0.5)" }}>
+              <div style={{ display: "flex", gap: SP.md, fontSize: 11, color: C.textTertiary }}>
                 <span><span style={{ color: C.passText }}>{s.pass}</span> Pass</span>
                 <span><span style={{ color: C.failText }}>{s.fail}</span> Fail</span>
                 <span><span style={{ color: C.uncertainText }}>{s.unknown}</span> Review</span>
@@ -1048,7 +1103,7 @@ function FinalDecisionPanel({ dashboard, criteriaDetails, evalBidders }: {
 
         {/* Column 3: Quick stats */}
         <div>
-          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", letterSpacing: 1, marginBottom: SP.sm, textTransform: "uppercase" }}>Quick Statistics</div>
+          <div style={{ fontSize: 11, color: C.textTertiary, letterSpacing: 1, marginBottom: SP.sm, textTransform: "uppercase" }}>Quick Statistics</div>
           {[
             { label: "Total criteria",    value: s.total_criteria },
             { label: "Bidders evaluated", value: bidders.length },
@@ -1057,8 +1112,8 @@ function FinalDecisionPanel({ dashboard, criteriaDetails, evalBidders }: {
             { label: "Uncertain",         value: s.unknown },
           ].map(({ label, value }) => (
             <div key={label} style={{ display: "flex", justifyContent: "space-between", marginBottom: SP.sm }}>
-              <span style={{ fontSize: 12, color: "rgba(255,255,255,0.5)" }}>{label}</span>
-              <span style={{ fontSize: 13, fontFamily: "JetBrains Mono, monospace", color: "#fff", fontWeight: 600 }}>{value}</span>
+              <span style={{ fontSize: 12, color: C.textTertiary }}>{label}</span>
+              <span style={{ fontSize: 13, fontFamily: "JetBrains Mono, monospace", color: C.textPrimary, fontWeight: 600 }}>{value}</span>
             </div>
           ))}
         </div>

@@ -3,7 +3,7 @@ import type {
   Job, JobCreate, FileRecord, FileType,
   EvaluationResponse, InsightResponse, ComparisonResponse,
   DashboardResponse, ReviewActionCreate, ReviewListResponse,
-  AuditTrailResponse, CriteriaListResponse,
+  AuditTrailResponse, CriteriaListResponse, ExtractionsResponse,
 } from "./types";
 
 // ── Auth ─────────────────────────────────────────────────────────────────────
@@ -69,6 +69,14 @@ export const filesApi = {
     document.body.appendChild(a); a.click();
     document.body.removeChild(a); URL.revokeObjectURL(url);
   },
+
+  // Fetches the file body for INLINE rendering (e.g. react-pdf in the in-app
+  // viewer). The /inline endpoint sets Content-Disposition: inline so browsers
+  // do not force a download.
+  getInline: async (fileId: string): Promise<Blob> => {
+    const resp = await apiClient.get(`/v1/files/${fileId}/inline`, { responseType: "blob" });
+    return resp.data as Blob;
+  },
 };
 
 // ── Client-side download helper ───────────────────────────────────────────────
@@ -103,6 +111,9 @@ export const analyzeApi = {
 
   getCriteria: (jobId: string) =>
     apiClient.get<CriteriaListResponse>(`/v1/analyze/${jobId}/criteria`).then((r) => r.data),
+
+  getExtractions: (jobId: string) =>
+    apiClient.get<ExtractionsResponse>(`/v1/analyze/${jobId}/extractions`).then((r) => r.data),
 
   // Phase 5
   getReviews: (jobId: string) =>

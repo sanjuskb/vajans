@@ -80,7 +80,10 @@ async def _run_evaluation(job_id: str) -> dict[str, Any]:
     from app.models.result import CriterionDB, ExtractionResultDB
     from app.models.evaluation import EvaluationResult
     from app.models.audit import AuditLog
-    from app.services.evaluation_engine import evaluate_job
+    from app.services.evaluation_engine import (
+        evaluate_criterion,
+        compute_final_decision,
+    )
     from app.services.audit_logger import log_action as log_chain
     from shared.contracts.schemas import AuditAction, JobStatus, FileType
 
@@ -94,111 +97,122 @@ async def _run_evaluation(job_id: str) -> dict[str, Any]:
             logger.error("Job not found", job_id=job_id)
             return {"status": "error", "reason": "job_not_found"}
 
-        # ── fetch criteria ────────────────────────────────────────────────
+        # ── fetch criteria ──────────────────────────────────────────
+        # Stable order so the EvaluationResult rows produced for this job
+        # are inserted in a reproducible sequence.
         criteria_rows = (await db.execute(
-            select(CriterionDB).where(CriterionDB.job_id == job_uuid)
+            select(CriterionDB)
+            .where(CriterionDB.job_id == job_uuid)
+            .order_by(CriterionDB.criterion_key.asc(), CriterionDB.id.asc())
         )).scalars().all()
 
         if not criteria_rows:
             logger.warning("No criteria found", job_id=job_id)
             return {"status": "error", "reason": "no_criteria"}
 
-        criteria_dicts = [c.to_dict() for c in criteria_rows]
-
-        # ── fetch all bidder files ────────────────────────────────────────
+        # ── fetch all bidder files ───────────────────────────────
         bidder_files = (await db.execute(
             select(File)
             .where(File.job_id == job_uuid)
             .where(File.file_type == FileType.BIDDER)
+            # Stable processing order across re-runs.
+            .order_by(File.created_at.asc(), File.id.asc())
         )).scalars().all()
 
         if not bidder_files:
             logger.warning("No bidder files found", job_id=job_id)
             bidder_files = []
 
-        # ── evaluate each bidder separately (with per-bidder caching) ───────
+        # ── evaluate each bidder separately (per-criterion caching) ──────
         all_results: list[dict] = []
 
         for bidder_file in bidder_files:
             fid = bidder_file.id
+            bidder_name = bidder_file.original_name
 
-            # Cache check: if this bidder already has evaluation results, skip
-            existing_count = (await db.execute(
-                select(EvaluationResult)
-                .where(EvaluationResult.job_id == job_uuid)
-                .where(EvaluationResult.bidder_file_id == fid)
-                .limit(1)
-            )).scalars().first()
-
-            if existing_count is not None:
-                logger.info(
-                    "Evaluation cache hit — skipping bidder",
-                    job_id=job_id,
-                    file_id=str(fid),
-                )
-                # Re-fetch existing results to include in all_results
-                cached_rows = (await db.execute(
-                    select(EvaluationResult)
-                    .where(EvaluationResult.job_id == job_uuid)
-                    .where(EvaluationResult.bidder_file_id == fid)
-                )).scalars().all()
-                for r in cached_rows:
-                    all_results.append({
-                        "criterion_id": str(r.criterion_id),
-                        "verdict":      r.verdict,
-                        "score":        r.score,
-                        "weight":       r.weight,
-                        "weighted_score": r.weighted_score,
-                        "explanation":  r.explanation,
-                        "bidder_file_id": str(fid),
-                        "bidder_name":    bidder_file.original_name,
-                        "final_status":   "QUALIFIED" if r.score > 0.0 else "DISQUALIFIED",
-                        "final_score":    r.score,
-                    })
-                continue
-
-            # Fetch this bidder's extractions (best per criterion)
+            # Fetch this bidder's extractions (best confidence per criterion).
+            # Tiebreak by oldest row + lowest id so two equal-confidence rows
+            # always select the SAME parsed_value across runs.
             extraction_rows = (await db.execute(
                 select(ExtractionResultDB)
                 .where(ExtractionResultDB.job_id == job_uuid)
                 .where(ExtractionResultDB.file_id == fid)
                 .where(ExtractionResultDB.not_found == False)   # noqa: E712
-                .order_by(ExtractionResultDB.extraction_confidence.desc())
+                .order_by(
+                    ExtractionResultDB.extraction_confidence.desc(),
+                    ExtractionResultDB.created_at.asc(),
+                    ExtractionResultDB.id.asc(),
+                )
             )).scalars().all()
 
-            # Build criterion_id → best parsed_value map for this bidder
             cid_value_map: dict[str, Any] = {}
+            cid_confidence_map: dict[str, float] = {}
             for row in extraction_rows:
                 cid = str(row.criterion_id)
                 if cid not in cid_value_map:
                     cid_value_map[cid] = row.parsed_value
+                    cid_confidence_map[cid] = float(row.extraction_confidence)
 
-            # Map criterion_key → extracted value for the engine
-            key_value_map: dict[str, Any] = {}
-            for c in criteria_rows:
-                val = cid_value_map.get(str(c.id))
-                key_value_map[c.criterion_key] = val
+            bidder_results: list[dict] = []
+            pending_to_persist: list[tuple[Any, dict]] = []
+            cache_hits = 0
 
-            engine_output = evaluate_job(criteria_dicts, key_value_map)
-            results  = engine_output["results"]
-            decision = engine_output["decision"]
+            for criterion_db in criteria_rows:
+                criterion_dict = criterion_db.to_dict()
+
+                # ── Per-criterion cache check ───────────────────────────
+                # Same (job, bidder_file, criterion) → reuse cached verdict.
+                # Guarantees same-input-same-output across pipeline re-runs.
+                existing_eval = (await db.execute(
+                    select(EvaluationResult)
+                    .where(EvaluationResult.job_id == job_uuid)
+                    .where(EvaluationResult.bidder_file_id == fid)
+                    .where(EvaluationResult.criterion_id == criterion_db.id)
+                    .limit(1)
+                )).scalars().first()
+
+                if existing_eval is not None:
+                    bidder_results.append({
+                        "criterion_id":   str(criterion_db.id),
+                        "criterion_key":  criterion_db.criterion_key,
+                        "verdict":        existing_eval.verdict,
+                        "score":          existing_eval.score,
+                        "weight":         existing_eval.weight,
+                        "weighted_score": existing_eval.weighted_score,
+                        "explanation":    existing_eval.explanation,
+                    })
+                    cache_hits += 1
+                    continue
+
+                # ── Fresh evaluation (deterministic Python) ─────────────
+                extracted_value = cid_value_map.get(str(criterion_db.id))
+                conf = cid_confidence_map.get(str(criterion_db.id), 0.87)
+
+                row = evaluate_criterion(criterion_dict, extracted_value, conf)
+                row["criterion_id"]  = str(criterion_db.id)
+                row["criterion_key"] = criterion_db.criterion_key
+                bidder_results.append(row)
+                pending_to_persist.append((criterion_db, row))
+
+            # ── Compute decision over ALL results (cached + new) ────────
+            criteria_lookup = {c.criterion_key: c.to_dict() for c in criteria_rows}
+            decision = compute_final_decision(bidder_results, criteria_lookup)
 
             logger.info(
                 "Per-bidder decision computed",
                 job_id=job_id,
                 file_id=str(fid),
+                cached=cache_hits,
+                fresh=len(pending_to_persist),
                 final_status=decision["final_status"],
                 final_score=decision["final_score"],
             )
 
-            # Persist EvaluationResult rows with bidder_file_id
-            for r in results:
-                cid = r.get("criterion_id")
-                if not cid:
-                    continue
+            # ── Persist newly-evaluated rows only ───────────────────────
+            for criterion_db, r in pending_to_persist:
                 db.add(EvaluationResult(
                     job_id=job_uuid,
-                    criterion_id=uuid.UUID(str(cid)),
+                    criterion_id=criterion_db.id,
                     bidder_file_id=fid,
                     verdict=str(r["verdict"]),
                     score=float(r["score"]),
@@ -207,46 +221,80 @@ async def _run_evaluation(job_id: str) -> dict[str, Any]:
                     explanation=str(r["explanation"]),
                 ))
 
-            for r in results:
+            for r in bidder_results:
                 r["bidder_file_id"] = str(fid)
-                r["bidder_name"]    = bidder_file.original_name
+                r["bidder_name"]    = bidder_name
                 r["final_status"]   = decision["final_status"]
                 r["final_score"]    = decision["final_score"]
-            all_results.extend(results)
+            all_results.extend(bidder_results)
 
-        # If no bidder files, fall back to global best-extraction mode
+        # ── Fallback: no bidder files → global per-criterion evaluation ──
         if not bidder_files:
             extraction_rows = (await db.execute(
                 select(ExtractionResultDB)
                 .where(ExtractionResultDB.job_id == job_uuid)
                 .where(ExtractionResultDB.not_found == False)   # noqa: E712
-                .order_by(ExtractionResultDB.extraction_confidence.desc())
+                .order_by(
+                    ExtractionResultDB.extraction_confidence.desc(),
+                    ExtractionResultDB.created_at.asc(),
+                    ExtractionResultDB.id.asc(),
+                )
             )).scalars().all()
 
             cid_value_map = {}
+            cid_confidence_map = {}
             for row in extraction_rows:
                 cid = str(row.criterion_id)
                 if cid not in cid_value_map:
                     cid_value_map[cid] = row.parsed_value
+                    cid_confidence_map[cid] = float(row.extraction_confidence)
 
-            key_value_map = {c.criterion_key: cid_value_map.get(str(c.id)) for c in criteria_rows}
-            engine_output = evaluate_job(criteria_dicts, key_value_map)
-            results  = engine_output["results"]
+            global_results: list[dict] = []
+            global_pending: list[tuple[Any, dict]] = []
 
-            for r in results:
-                cid = r.get("criterion_id")
-                if not cid:
+            for criterion_db in criteria_rows:
+                existing_eval = (await db.execute(
+                    select(EvaluationResult)
+                    .where(EvaluationResult.job_id == job_uuid)
+                    .where(EvaluationResult.bidder_file_id.is_(None))
+                    .where(EvaluationResult.criterion_id == criterion_db.id)
+                    .limit(1)
+                )).scalars().first()
+
+                if existing_eval is not None:
+                    global_results.append({
+                        "criterion_id":   str(criterion_db.id),
+                        "criterion_key":  criterion_db.criterion_key,
+                        "verdict":        existing_eval.verdict,
+                        "score":          existing_eval.score,
+                        "weight":         existing_eval.weight,
+                        "weighted_score": existing_eval.weighted_score,
+                        "explanation":    existing_eval.explanation,
+                    })
                     continue
+
+                extracted_value = cid_value_map.get(str(criterion_db.id))
+                conf = cid_confidence_map.get(str(criterion_db.id), 0.87)
+                row = evaluate_criterion(criterion_db.to_dict(), extracted_value, conf)
+                row["criterion_id"]  = str(criterion_db.id)
+                row["criterion_key"] = criterion_db.criterion_key
+                global_results.append(row)
+                global_pending.append((criterion_db, row))
+
+            criteria_lookup = {c.criterion_key: c.to_dict() for c in criteria_rows}
+            compute_final_decision(global_results, criteria_lookup)
+
+            for criterion_db, r in global_pending:
                 db.add(EvaluationResult(
                     job_id=job_uuid,
-                    criterion_id=uuid.UUID(str(cid)),
+                    criterion_id=criterion_db.id,
                     verdict=str(r["verdict"]),
                     score=float(r["score"]),
                     weight=float(r.get("weight", 1.0)),
                     weighted_score=float(r.get("weighted_score", 0.0)),
                     explanation=str(r["explanation"]),
                 ))
-            all_results = results
+            all_results = global_results
 
         unknown_count = sum(1 for r in all_results if r["verdict"] == "unknown")
         pass_count    = sum(1 for r in all_results if r["verdict"] == "pass")

@@ -48,9 +48,9 @@ export default function App(): React.ReactElement {
           position="bottom-right"
           toastOptions={{
             style: {
-              background: "#1C2333",
-              color: "#F9FAFB",
-              border: "1px solid #2D3F57",
+              background: "var(--tooltip-bg)",
+              color: "var(--text-primary)",
+              border: "1px solid var(--tooltip-border)",
               fontSize: 13,
             },
           }}
@@ -85,7 +85,7 @@ export default function App(): React.ReactElement {
 
 function HelpPlaceholder() {
   return (
-    <div style={{ color: "#9CA3AF", padding: 32, fontSize: 14 }}>
+    <div style={{ color: "var(--text-secondary)", padding: 32, fontSize: 14 }}>
       Help &amp; Documentation — coming soon
     </div>
   );

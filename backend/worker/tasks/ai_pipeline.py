@@ -29,6 +29,61 @@ def _parse_threshold(val) -> Optional[float]:
     return float(match.group()) if match else None
 
 
+def _resolve_page_for_snippet(snippet: Optional[str], chunks) -> Optional[int]:
+    """
+    Best-effort: locate the 1-indexed PDF page that contains an extracted
+    snippet by matching against this bidder's chunked text.
+
+    Strategy (each chunk has `.text` and `.page`):
+      1) Exact substring match of the snippet (or its first 80 chars).
+      2) Longest-prefix substring match (handles snippet that was lightly
+         reformatted by the LLM but still starts with original text).
+      3) Word-overlap fallback: pick the chunk with the most matching
+         words from the snippet (only if overlap >= 4 distinctive words).
+
+    Returns the chunk's `page` (1-indexed) or None if no confident match.
+    """
+    if not snippet or not chunks:
+        return None
+
+    raw = snippet.strip()
+    if not raw:
+        return None
+
+    # Strategy 1 — exact substring (full snippet, then progressively shorter prefix)
+    for length in (len(raw), 200, 120, 80, 50):
+        probe = raw[:length].strip()
+        if len(probe) < 20:
+            break
+        for c in chunks:
+            if c.text and probe in c.text:
+                return c.page
+
+    # Strategy 2 — longest-common-prefix scan: take first 30 chars and look loosely
+    head = re.sub(r"\s+", " ", raw[:60].lower())
+    if len(head) >= 20:
+        for c in chunks:
+            text = re.sub(r"\s+", " ", (c.text or "").lower())
+            if head in text:
+                return c.page
+
+    # Strategy 3 — word overlap (only for distinctive >=4-word match)
+    words = [w for w in re.findall(r"[A-Za-z0-9]{4,}", raw.lower())]
+    if len(words) >= 4:
+        best_page = None
+        best_score = 3   # require strictly > 3 hits to count
+        for c in chunks:
+            text_lower = (c.text or "").lower()
+            score = sum(1 for w in words if w in text_lower)
+            if score > best_score:
+                best_score = score
+                best_page = c.page
+        if best_page is not None:
+            return best_page
+
+    return None
+
+
 def _build_fields_spec(criterion_raw: Dict) -> List[Dict[str, str]]:
     """
     Build field specification list for a criterion.
@@ -187,6 +242,7 @@ async def _run_pipeline_inner(job_id: str) -> Dict[str, Any]:
     from app.models.chunk import Chunk
     from app.models.file import File as FileModel
     from app.models.audit import AuditLog
+    from app.models.result import CriterionDB
     from shared.contracts.schemas import AuditAction, JobStatus, FileType
     from sqlalchemy import select
 
@@ -262,10 +318,14 @@ async def _run_pipeline_inner(job_id: str) -> Dict[str, Any]:
 
         # ── 5. Get tender file and extract criteria ───────────────────────
         tender_files_result = await db.execute(
-            select(FileModel).where(
+            select(FileModel)
+            .where(
                 FileModel.job_id == uuid.UUID(job_id),
                 FileModel.file_type == FileType.TENDER,
             )
+            # Stable order so `tender_files[0]` is reproducible if a job ever
+            # has multiple tenders (id breaks created_at ties).
+            .order_by(FileModel.created_at.asc(), FileModel.id.asc())
         )
         tender_files = tender_files_result.scalars().all()
 
@@ -276,28 +336,100 @@ async def _run_pipeline_inner(job_id: str) -> Dict[str, Any]:
         tender_file = tender_files[0]
 
         tender_chunks_result = await db.execute(
-            select(Chunk).where(Chunk.file_id == tender_file.id)
+            select(Chunk)
+            .where(Chunk.file_id == tender_file.id)
+            # chunk_index is dense and deterministic per ingestion run.
+            .order_by(Chunk.chunk_index.asc(), Chunk.id.asc())
         )
         tender_chunks = tender_chunks_result.scalars().all()
         tender_text = "\n\n".join(c.text for c in tender_chunks)
 
-        # Extract criteria from tender
-        try:
-            from app.engines.extraction import extract_tender_criteria
-            criteria_data = await extract_tender_criteria(tender_text)
-            criteria_list = criteria_data.get("criteria", [])
-            log.info("Tender criteria extracted", count=len(criteria_list))
-        except Exception as exc:
-            log.error("Tender criteria extraction failed", error=str(exc))
-            raise
+        # ── Cross-job tender-criteria cache (determinism across re-runs) ─
+        # The LLM output for `extract_tender_criteria` is non-deterministic
+        # across runs even at temperature=0 (provider routing, prompt
+        # caching, etc.).  If the same tender file (matched by SHA-256)
+        # has been processed by an earlier job, REUSE its criterion set.
+        # This stabilises every downstream value because (a) criterion_keys
+        # are identical, (b) the existing per-criterion extraction cache
+        # in `_process_bidder_file` (cross-job, by file checksum +
+        # criterion_key) then short-circuits LLM extraction for bidders.
+        criteria_list: List[Dict[str, Any]] = []
+        cache_source_job: Optional[str] = None
+        tender_checksum = tender_file.checksum_sha256
+        if tender_checksum:
+            prior_criteria_rows = (await db.execute(
+                select(CriterionDB)
+                .join(FileModel, CriterionDB.tender_file_id == FileModel.id)
+                .where(
+                    FileModel.checksum_sha256 == tender_checksum,
+                    CriterionDB.job_id != uuid.UUID(job_id),
+                )
+                .order_by(CriterionDB.created_at.asc(), CriterionDB.id.asc())
+            )).scalars().all()
+
+            # Pick the earliest job that has criteria for this tender file
+            # and reuse its full criterion set.  All criteria from one job
+            # are emitted together, so we just take everything from the
+            # oldest matching job_id.
+            if prior_criteria_rows:
+                source_job_id = prior_criteria_rows[0].job_id
+                source_set = [
+                    c for c in prior_criteria_rows if c.job_id == source_job_id
+                ]
+                cache_source_job = str(source_job_id)
+                criteria_list = [
+                    {
+                        "id":              c.criterion_key,
+                        "label":           c.label,
+                        "criterion_type":  c.criterion_type,
+                        "description":     c.description,
+                        "mandatory":       c.mandatory,
+                        "threshold_value": c.threshold_value,
+                        "threshold_unit":  c.threshold_unit,
+                        "time_window_years": c.time_window_years,
+                        "operator":        c.operator,
+                        "ambiguous":       c.ambiguous,
+                        "source_snippet":  c.source_snippet,
+                    }
+                    for c in source_set
+                ]
+                log.info(
+                    "Tender criteria reused from prior job (deterministic cache)",
+                    source_job=cache_source_job,
+                    count=len(criteria_list),
+                )
+
+        # If no cache hit, run the LLM extraction now.
+        if not criteria_list:
+            try:
+                from app.engines.extraction import extract_tender_criteria
+                criteria_data = await extract_tender_criteria(tender_text)
+                criteria_list = criteria_data.get("criteria", [])
+                log.info("Tender criteria extracted via LLM", count=len(criteria_list))
+            except Exception as exc:
+                log.error("Tender criteria extraction failed", error=str(exc))
+                raise
+
+        # Normalise criterion_keys to a canonical form so identical
+        # extracted text always yields identical keys, and sort the list
+        # by criterion_key so insertion order is stable.
+        for c in criteria_list:
+            raw_key = (c.get("id") or c.get("label") or "unknown").strip().lower()
+            # Replace any non-[a-z0-9_] character with underscore, collapse runs.
+            canon = re.sub(r"[^a-z0-9]+", "_", raw_key).strip("_") or "unknown"
+            c["id"] = canon
+        criteria_list.sort(key=lambda c: c.get("id", ""))
 
         # ── 6. Store criteria in DB (idempotent — skip existing criterion_key) ─
-        from app.models.result import CriterionDB
+        # CriterionDB already imported at the top of this function.
         stored_criteria = []
 
-        # Load any criteria already stored for this job (handles retries)
+        # Load any criteria already stored for this job (handles retries).
+        # Stable order so retried runs see them in a reproducible sequence.
         existing_criteria_result = await db.execute(
-            select(CriterionDB).where(CriterionDB.job_id == uuid.UUID(job_id))
+            select(CriterionDB)
+            .where(CriterionDB.job_id == uuid.UUID(job_id))
+            .order_by(CriterionDB.created_at.asc(), CriterionDB.id.asc())
         )
         existing_criteria = existing_criteria_result.scalars().all()
         existing_keys = {c.criterion_key: c for c in existing_criteria}
@@ -340,10 +472,14 @@ async def _run_pipeline_inner(job_id: str) -> Dict[str, Any]:
 
         # ── 7. Process each bidder file ───────────────────────────────────
         bidder_files_result = await db.execute(
-            select(FileModel).where(
+            select(FileModel)
+            .where(
                 FileModel.job_id == uuid.UUID(job_id),
                 FileModel.file_type == FileType.BIDDER,
             )
+            # Stable bidder iteration order: by upload time, then id.
+            # Affects audit-chain entry sequence and any timing-coupled state.
+            .order_by(FileModel.created_at.asc(), FileModel.id.asc())
         )
         bidder_files = bidder_files_result.scalars().all()
         log.info("Processing bidder files", count=len(bidder_files))
@@ -481,7 +617,14 @@ async def _process_bidder_file(
                         CriterionDB.criterion_key == criterion_db.criterion_key,
                         ExtractionResultDB.not_found == False,  # noqa: E712
                     )
-                    .order_by(ExtractionResultDB.extraction_confidence.desc())
+                    # Highest confidence first; ties broken deterministically
+                    # by oldest row -> lowest id so the cache always returns
+                    # the SAME row for identical inputs.
+                    .order_by(
+                        ExtractionResultDB.extraction_confidence.desc(),
+                        ExtractionResultDB.created_at.asc(),
+                        ExtractionResultDB.id.asc(),
+                    )
                     .limit(1)
                 )).scalars().first()
 
@@ -503,6 +646,7 @@ async def _process_bidder_file(
                         extraction_confidence=cross_job_hit.extraction_confidence,
                         not_found=cross_job_hit.not_found,
                         raw_llm_output=cross_job_hit.raw_llm_output,
+                        page_number=cross_job_hit.page_number,
                     )
                     db.add(db_cloned)
                     await db.flush()
@@ -554,8 +698,12 @@ async def _process_bidder_file(
                 retrieved_chunks=relevant_texts,
             )
 
-            # ── Store in DB ───────────────────────────────────────────────
+            # ── Store in DB (with best-effort page-number resolution) ─────
             for ef in extraction.fields:
+                page_number = _resolve_page_for_snippet(
+                    ef.source_snippet, all_bidder_chunks
+                ) if not ef.not_found else None
+
                 db_result = ExtractionResultDB(
                     job_id=uuid.UUID(job_id),
                     file_id=bidder_file.id,
@@ -572,6 +720,7 @@ async def _process_bidder_file(
                     extraction_confidence=ef.confidence,
                     not_found=ef.not_found,
                     raw_llm_output=extraction.raw_llm_output,
+                    page_number=page_number,
                 )
                 db.add(db_result)
                 results_stored += 1

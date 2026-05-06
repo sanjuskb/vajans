@@ -186,13 +186,20 @@ def evaluate_criterion(criterion: Dict, extracted_value: Any = None, confidence:
             }
         # Fall through to signal-based check below
 
-    # STEP 1: Check negated PASS phrases FIRST.
-    # "not blacklisted" contains "blacklisted" so must be matched before FAIL signals.
+    # STEP 1: Check negated PASS phrases FIRST (deterministic ordering).
+    # CRITICAL: "not blacklisted" contains "blacklisted" — therefore PASS signals
+    # MUST be matched before FAIL signals or every clean record would be flagged.
     _NEGATED_PASS_SIGNALS = (
-        "not blacklisted", "not_blacklisted", "not debarred", "not_debarred",
-        "not listed", "not_listed", "no blacklisting", "no debarment",
-        "debarment: none", "declares that", "hereby declare",
+        # Blacklisting / debarment — explicit clean declarations
+        "not blacklisted", "not_blacklisted",
+        "is not blacklisted", "are not blacklisted",
+        "not debarred", "not_debarred",
+        "is not debarred", "are not debarred",
+        "not listed", "not_listed",
+        "no blacklisting", "no debarment",
+        "debarment: none",
         "not been blacklisted", "not been debarred",
+        "hereby declare", "declares that",
     )
     if any(sig in val_lower for sig in _NEGATED_PASS_SIGNALS):
         return {
@@ -201,10 +208,16 @@ def evaluate_criterion(criterion: Dict, extracted_value: Any = None, confidence:
             "explanation": f"[{label}] Compliant (not blacklisted/debarred): '{extracted_value}'",
         }
 
-    # STEP 2: Explicit failure signals
+    # STEP 2: Explicit failure signals — checked AFTER pass signals so phrases
+    # like "is not blacklisted" never fall through to here.
     _FAIL_SIGNALS = (
-        "expired", "invalid", "blacklisted", "debarred", "cancelled",
-        "revoked", "suspended", "not registered", "not valid", "lapsed",
+        # Blacklisting / debarment — explicit non-compliance
+        "is blacklisted", "has been blacklisted", "was blacklisted",
+        "is debarred", "has been debarred", "was debarred",
+        # Generic non-compliance signals (matched as substrings)
+        "expired", "invalid", "blacklisted", "debarred",
+        "cancelled", "revoked", "suspended",
+        "not registered", "not valid", "lapsed",
     )
     if any(sig in val_lower for sig in _FAIL_SIGNALS):
         return {

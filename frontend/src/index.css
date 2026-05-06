@@ -3,6 +3,29 @@
 @import "tailwindcss";
 @config "../tailwind.config.js";
 
+/* Tailwind v4 — map utility color tokens to runtime CSS vars so theme switching works */
+@theme {
+  --color-bg-primary:      var(--bg-primary);
+  --color-bg-secondary:    var(--bg-secondary);
+  --color-bg-tertiary:     var(--bg-tertiary);
+  --color-bg-hover:        var(--bg-hover);
+  --color-border-subtle:   var(--border-subtle);
+  --color-border-active:   var(--border-active);
+  --color-accent-muted:    var(--accent-muted);
+  --color-accent-text:     var(--accent-text);
+  --color-pass-bg:         var(--pass-bg);
+  --color-pass-text:       var(--pass-text);
+  --color-fail-bg:         var(--fail-bg);
+  --color-fail-text:       var(--fail-text);
+  --color-uncertain-bg:    var(--uncertain-bg);
+  --color-uncertain-text:  var(--uncertain-text);
+  --color-review-bg:       var(--review-bg);
+  --color-review-text:     var(--review-text);
+  --color-text-primary:    var(--text-primary);
+  --color-text-secondary:  var(--text-secondary);
+  --color-text-tertiary:   var(--text-tertiary);
+}
+
 /* VAJANS — Theme CSS Variables */
 
 /* DARK MODE (default) */
@@ -34,6 +57,29 @@
   --table-row-hover: #1c2333;
   --scrollbar-track: #111827;
   --scrollbar-thumb: #2d3f57;
+  /* Verdict — dark style */
+  --pass-bg: #064e3b;
+  --pass-text: #d1fae5;
+  --pass-solid: #059669;
+  --fail-bg: #450a0a;
+  --fail-text: #fca5a5;
+  --fail-solid: #dc2626;
+  --uncertain-bg: #451a03;
+  --uncertain-text: #fcd34d;
+  --uncertain-solid: #d97706;
+  --review-bg: #2e1065;
+  --review-text: #c4b5fd;
+  --review-solid: #7c3aed;
+  /* Nav / sidebar */
+  --nav-divider: #1e2a3b;
+  --nav-item-bg-active: #1f2937;
+  --nav-item-color: #9ca3af;
+  --nav-item-color-active: #f9fafb;
+  --nav-icon: #9ca3af;
+  --nav-icon-active: #60a5fa;
+  --nav-section-label: #6b7280;
+  --user-name-color: #f9fafb;
+  --user-role-color: #60a5fa;
   color-scheme: dark;
 }
 
@@ -53,7 +99,7 @@
   --accent-muted: #dbeafe;
   --accent-text: #1d4ed8;
   --card-bg: #ffffff;
-  --sidebar-bg: #1e293b;
+  --sidebar-bg: #f1f5f9;
   --topbar-bg: #ffffff;
   --chart-grid: #e2e8f0;
   --chart-axis: #64748b;
@@ -66,24 +112,26 @@
   --table-row-hover: #f1f5f9;
   --scrollbar-track: #f1f5f9;
   --scrollbar-thumb: #cbd5e1;
+  /* Verdict — light style */
+  --pass-bg: #ecfdf5;
+  --pass-text: #064e3b;
+  --fail-bg: #fef2f2;
+  --fail-text: #991b1b;
+  --uncertain-bg: #fffbeb;
+  --uncertain-text: #92400e;
+  --review-bg: #f5f3ff;
+  --review-text: #5b21b6;
+  /* Nav / sidebar — light */
+  --nav-divider: #e2e8f0;
+  --nav-item-bg-active: #e2e8f0;
+  --nav-item-color: #475569;
+  --nav-item-color-active: #0f172a;
+  --nav-icon: #64748b;
+  --nav-icon-active: #2563eb;
+  --nav-section-label: #94a3b8;
+  --user-name-color: #0f172a;
+  --user-role-color: #2563eb;
   color-scheme: light;
-}
-
-/* Verdict colors — same in both modes */
-:root,
-.light {
-  --pass-bg: #064e3b;
-  --pass-text: #d1fae5;
-  --pass-solid: #059669;
-  --fail-bg: #450a0a;
-  --fail-text: #fca5a5;
-  --fail-solid: #dc2626;
-  --uncertain-bg: #451a03;
-  --uncertain-text: #fcd34d;
-  --uncertain-solid: #d97706;
-  --review-bg: #2e1065;
-  --review-text: #c4b5fd;
-  --review-solid: #7c3aed;
 }
 
 /* Apply CSS variables everywhere */
@@ -262,3 +310,125 @@ select option {
 
 /* Recharts: let ResponsiveContainer measure its own parent.
    We control overflow/sizing via the card/chartSlot wrappers instead. */
+
+/* ══════════════════════════════════════════════════════════════════════════
+   LIGHT MODE — TARGETED HARD OVERRIDE
+   No * reset (it breaks z-stacked content).
+   Targets specific structural elements + divs that have inline dark hex.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* 1 ── BODY + ROOT */
+html.light,
+html.light body,
+html.light #root {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+
+/* 2 ── SEMANTIC SHELL */
+html.light aside {
+  background-color: #f8fafc !important;
+  border-right: 1px solid #e5e7eb !important;
+}
+html.light header {
+  background-color: #ffffff !important;
+  border-bottom: 1px solid #e2e8f0 !important;
+}
+html.light main,
+html.light section {
+  background-color: #f8fafc !important;
+}
+
+/* 3a ── INLINE DARK HEX KILLER
+   Targets divs whose style="" contains specific dark hex codes. */
+html.light div[style*="#0B0F1A"],
+html.light div[style*="#0b0f1a"],
+html.light div[style*="#0B1220"],
+html.light div[style*="#0b1220"],
+html.light div[style*="#111827"],
+html.light div[style*="#1C2333"],
+html.light div[style*="#1c2333"],
+html.light div[style*="#1E2A3B"],
+html.light div[style*="#1e2a3b"],
+html.light div[style*="#1E293B"],
+html.light div[style*="#1F2937"],
+html.light div[style*="#1f2937"],
+html.light div[style*="#374151"],
+html.light div[style*="#0D1B2A"],
+html.light div[style*="#0d1b2a"],
+html.light div[style*="#451A03"],
+html.light div[style*="#451a03"],
+html.light div[style*="#450A0A"],
+html.light div[style*="#450a0a"],
+html.light div[style*="#7F1D1D"],
+html.light div[style*="#064E3B"],
+html.light div[style*="#064e3b"],
+html.light div[style*="#052E16"],
+html.light div[style*="#052e16"] {
+  background-color: #ffffff !important;
+  background-image: none !important;
+  color: #0f172a !important;
+}
+
+/* 3b ── CSS-VAR INLINE-STYLE KILLER
+   Matches inline styles like style="background: var(--card-bg)". Critical because
+   CSS variables in inline styles don't get re-resolved if !important from elsewhere
+   wins. We force the correct light colors directly. */
+html.light [style*="var(--card-bg)"],
+html.light [style*="var(--bg-secondary)"] {
+  background-color: #ffffff !important;
+}
+html.light [style*="var(--bg-primary)"] {
+  background-color: #f8fafc !important;
+}
+html.light [style*="var(--bg-tertiary)"],
+html.light [style*="var(--sidebar-bg)"],
+html.light [style*="var(--table-header)"] {
+  background-color: #f1f5f9 !important;
+}
+html.light [style*="var(--table-row)"]:not([style*="var(--table-row-hover)"]) {
+  background-color: #ffffff !important;
+}
+html.light [style*="var(--table-row-hover)"] {
+  background-color: #f1f5f9 !important;
+}
+html.light [style*="var(--bg-hover)"] {
+  background-color: #e2e8f0 !important;
+}
+html.light [style*="var(--tooltip-bg)"] {
+  background-color: #ffffff !important;
+}
+
+/* 4 ── BACKDROP BLUR / FILTERS — kill in light mode */
+html.light [class*="backdrop"] {
+  backdrop-filter: none !important;
+}
+
+/* 5 ── INPUTS */
+html.light input,
+html.light textarea,
+html.light select {
+  background-color: #ffffff !important;
+  border: 1px solid #d1d5db !important;
+  color: #0f172a !important;
+}
+
+/* 6 ── SCROLLBARS */
+html.light ::-webkit-scrollbar-track { background-color: #f1f5f9 !important; }
+html.light ::-webkit-scrollbar-thumb { background-color: #cbd5e1 !important; }
+
+/* 7 ── VERDICT BADGE CLASSES */
+html.light .bg-pass-bg          { background-color: #ecfdf5 !important; }
+html.light .text-pass-text      { color: #064e3b !important; }
+html.light .bg-fail-bg          { background-color: #fef2f2 !important; }
+html.light .text-fail-text      { color: #991b1b !important; }
+html.light .bg-uncertain-bg     { background-color: #fffbeb !important; }
+html.light .text-uncertain-text { color: #92400e !important; }
+html.light .bg-review-bg        { background-color: #f5f3ff !important; }
+html.light .text-review-text    { color: #5b21b6 !important; }
+html.light .bg-accent-muted     { background-color: #dbeafe !important; }
+html.light .text-accent-text    { color: #1d4ed8 !important; }
+html.light .text-text-secondary { color: #475569 !important; }
+html.light .text-text-tertiary  { color: #94a3b8 !important; }
+html.light .text-text-primary   { color: #0f172a !important; }
+html.light .bg-bg-tertiary      { background-color: #f1f5f9 !important; }

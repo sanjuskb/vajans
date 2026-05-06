@@ -21,7 +21,10 @@ async def _get_all_results(db: AsyncSession, job_id: uuid_mod.UUID) -> list:
         await db.execute(
             select(EvaluationResult)
             .where(EvaluationResult.job_id == job_id)
-            .order_by(EvaluationResult.created_at.asc())
+            # Stable ordering: id breaks created_at ties so dedup
+            # selects the same "latest" row across re-runs.
+            .order_by(EvaluationResult.created_at.asc(),
+                      EvaluationResult.id.asc())
         )
     ).scalars().all()
 
@@ -42,7 +45,7 @@ async def _get_criteria_rows(db: AsyncSession, job_id: uuid_mod.UUID) -> list:
         await db.execute(
             select(CriterionDB)
             .where(CriterionDB.job_id == job_id)
-            .order_by(CriterionDB.created_at.asc())
+            .order_by(CriterionDB.created_at.asc(), CriterionDB.id.asc())
         )
     ).scalars().all()
     # Deduplicate by criterion_key — keep the first (oldest) occurrence
@@ -198,6 +201,14 @@ async def generate_criterion_insights(
             "bidder_name":     bidder_name,
         })
 
+    # Stable, human-friendly order: by bidder name, then criterion label,
+    # then criterion_id (UUID) as a final tiebreak. Without this the list
+    # would inherit the dict iteration order of `results`.
+    insights.sort(key=lambda i: (
+        (i["bidder_name"] or "").lower(),
+        (i["label"]       or "").lower(),
+        i["criterion_id"],
+    ))
     return insights
 
 
@@ -229,10 +240,12 @@ async def generate_flags(
             "severity": "warning",
         })
 
-    missing_threshold = [
+    # Sort affected criterion ids so the flag payload is byte-identical
+    # across runs (set iteration order is unstable in CPython).
+    missing_threshold = sorted([
         cid for cid in set(crit_ids)
         if crit_map.get(cid) is not None and crit_map[cid].threshold_value is None
-    ]
+    ])
     if missing_threshold:
         flags.append({
             "code":              "missing_numeric_thresholds",

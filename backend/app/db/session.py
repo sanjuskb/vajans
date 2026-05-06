@@ -35,11 +35,15 @@ def _build_engine_url():
     from sqlalchemy.engine import URL
     env = os.getenv("ENVIRONMENT", "development")
     if env == "production":
+        # Supabase Transaction pooler. Note the cluster id is "aws-1-..." —
+        # Supabase shards tenants across multiple clusters per region, so the
+        # cluster prefix matters as much as the region. This exact host comes
+        # from the project's Connect dialog in the Supabase dashboard.
         return URL.create(
             drivername="postgresql+asyncpg",
             username="postgres.kalihyqbvziypwhklhjc",
             password="vajans@02072526",
-            host="aws-0-ap-northeast-1.pooler.supabase.com",
+            host="aws-1-ap-northeast-1.pooler.supabase.com",
             port=6543,
             database="postgres",
         )
@@ -48,10 +52,23 @@ def _build_engine_url():
 
 
 def _build_connect_args():
+    """Connection-time arguments for asyncpg / the SQLAlchemy asyncpg dialect.
+
+    pgbouncer (Supabase Transaction pooler) holds backend connections across
+    our NullPool sessions and keeps any prepared statements those sessions
+    created. asyncpg's default name scheme is a deterministic counter
+    (__asyncpg_stmt_1__, __asyncpg_stmt_2__, ...), so the very next session
+    that lands on the same backend collides with DuplicatePreparedStatement.
+    Two layers of defence in production:
+      1. prepared_statement_cache_size=0 — disable the dialect-level cache.
+      2. prepared_statement_name_func — UUID names, so even the unavoidable
+         dialect.initialize() probe can't collide.
+    """
     import os
     env = os.getenv("ENVIRONMENT", "development")
     if env == "production":
         import ssl
+        import uuid
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
@@ -59,6 +76,10 @@ def _build_connect_args():
             "server_settings": {"application_name": "vajans"},
             "command_timeout": 30,
             "statement_cache_size": 0,
+            "prepared_statement_cache_size": 0,
+            "prepared_statement_name_func": (
+                lambda: f"__asyncpg_{uuid.uuid4().hex}__"
+            ),
             "ssl": ctx,
         }
     else:

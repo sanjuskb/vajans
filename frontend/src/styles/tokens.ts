@@ -13,11 +13,11 @@ export const C = {
   borderSubtle:"var(--border-subtle)",
   borderActive:"var(--border-active)",
 
-  // Brand — hardcoded hex so they work in template literals e.g. `${C.accent}30`
+  // Brand — accent stays hex (same in both modes, used in template literals e.g. `${C.accent}30`)
   accent:      "#2563EB",
   accentHover: "#1D4ED8",
-  accentMuted: "#1E3A5F",
-  accentText:  "var(--accent-text)",   // CSS var so light mode shows darker blue
+  accentMuted: "var(--accent-muted)",  // CSS var: dark=#1E3A5F, light=#DBEAFE
+  accentText:  "var(--accent-text)",   // CSS var: dark=#60A5FA, light=#1D4ED8
 
   // Card / topbar / sidebar surfaces
   cardBg:      "var(--card-bg)",
@@ -37,19 +37,20 @@ export const C = {
   tableRow:      "var(--table-row)",
   tableRowHover: "var(--table-row-hover)",
 
-  // Verdicts — same in both themes (always dark-style badges)
+  // Verdicts — solid colors stay hex (same in both themes, used in template literals)
   passSolid:   "#059669",
-  passText:    "#D1FAE5",
-  passBg:      "#064E3B",
   failSolid:   "#DC2626",
-  failText:    "#FCA5A5",
-  failBg:      "#450A0A",
   uncertainSolid: "#D97706",
-  uncertainText:  "#FCD34D",
-  uncertainBg:    "#451A03",
   reviewSolid: "#7C3AED",
-  reviewText:  "#C4B5FD",
-  reviewBg:    "#2E1065",
+  // Verdict bg/text — CSS vars (dark: dark-bg/light-text, light: light-bg/dark-text)
+  passBg:      "var(--pass-bg)",
+  passText:    "var(--pass-text)",
+  failBg:      "var(--fail-bg)",
+  failText:    "var(--fail-text)",
+  uncertainBg: "var(--uncertain-bg)",
+  uncertainText: "var(--uncertain-text)",
+  reviewBg:    "var(--review-bg)",
+  reviewText:  "var(--review-text)",
 
   // Text — theme-aware via CSS variables
   textPrimary:   "var(--text-primary)",
