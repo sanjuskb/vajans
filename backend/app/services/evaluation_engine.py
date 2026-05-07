@@ -96,22 +96,13 @@ def _is_gst_number(val: str) -> bool:
     return bool(_GST_RE.search(val.upper()))
 
 
-def _compute_trust_score(
-    ocr_quality: float = 0.88,
-    field_completeness: float = 1.0,
-    semantic_confidence: float = 0.85,
-    cross_doc_consistency: float = 1.0,
-) -> float:
-    """
-    TrustScore = 0.30×ocr + 0.25×completeness + 0.25×confidence + 0.20×consistency
-    """
-    score = (
-        0.30 * ocr_quality
-        + 0.25 * field_completeness
-        + 0.25 * semantic_confidence
-        + 0.20 * cross_doc_consistency
-    )
-    return round(min(1.0, max(0.0, score)), 4)
+# NOTE: A `_compute_trust_score()` helper used to live here with a hard-coded
+# `ocr_quality: float = 0.88` default. It had ZERO callers anywhere in the
+# codebase and the 0.88 default was the smoking gun behind the "every
+# document shows 88%" UI bug (the frontend separately fell back to 0.88 when
+# the API didn't expose `ocr_quality`). The helper was removed; the real,
+# dynamic OCR-quality score now lives in `app.engines.ingestion.compute_ocr_quality`
+# and is read by the API layer / frontend without any 0.88 placeholder.
 
 
 # ---------------------------------------------------------------------------

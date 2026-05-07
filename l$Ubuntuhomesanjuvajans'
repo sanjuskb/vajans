@@ -1,0 +1,10 @@
+  kind   |  ocr   |  conf  | sharp  | skew  | density | empty_ratio |               name               
+---------+--------+--------+--------+-------+---------+-------------+----------------------------------
+ scanned | 0.7772 | 0.9475 | 0.1442 | 0.582 | 0.623   | 0.0         | bidder_deccan_civil_works.pdf
+ scanned | 0.7703 | 0.9379 | 0.5062 | 45.0  | 0.836   | 0.0         | bidder_konkan_engineering.pdf
+ digital | 0.9716 | 1.0    | 1.0    | 0.0   | 0.7157  | 0.0         | bidder_vidhya_builders.pdf
+ digital | 0.9890 | 1.0    | 1.0    | 0.0   | 0.8903  | 0.0         | bidder_sahyadri_construction.pdf
+ digital | 0.9638 | 1.0    | 1.0    | 0.0   | 0.6382  | 0.0         | bidder_maharashtra_infra.pdf
+ digital | 0.9963 | 1.0    | 1.0    | 0.0   | 0.9633  | 0.0         | tender_morth_sh275.pdf
+(6 rows)
+

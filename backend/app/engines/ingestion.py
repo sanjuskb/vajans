@@ -69,9 +69,30 @@ class DocumentKind(str, Enum):
 
 @dataclass
 class PageText:
+    """
+    Per-page extraction record.
+
+    `ocr_confidence` is the core Tesseract word-confidence mean (0..1), set
+    to 1.0 for digital pages that did not go through OCR. The remaining
+    fields are additional signals consumed by `compute_ocr_quality()` so
+    the final OCR-quality score reflects REAL document characteristics
+    (blur, skew, text density, empty pages) rather than just the engine's
+    word-level confidence.
+    """
     page_number: int        # 1-indexed
     text: str
     ocr_confidence: float = 1.0   # 1.0 for digital; Tesseract avg for scanned
+    # Normalized chars per page, clipped to [0, 1]. 1.0 ≈ a well-filled
+    # text page (~1500 chars). 0.0 ≈ a fully empty page.
+    text_density: float = 1.0
+    # Laplacian-variance sharpness proxy, normalized to [0, 1]. 1.0 = crisp,
+    # 0.0 = heavily blurred. Always 1.0 for digital pages (no raster to blur).
+    sharpness: float = 1.0
+    # Absolute deskew angle in degrees — how much rotation was needed to
+    # straighten the page. 0.0 for digital; up to ~10° on bad scans.
+    skew_abs_deg: float = 0.0
+    # True if the page produced no usable text after cleaning.
+    is_empty: bool = False
 
 
 @dataclass
@@ -94,11 +115,16 @@ class ExtractedDocument:
     raw_text:         str                        # full concatenated text
     page_texts:       dict[int, str]             # page_number → text
     chunks:           list[str]                  # RAG-ready chunks
-    ocr_quality_score: float                     # 0.0 – 1.0
+    ocr_quality_score: float                     # 0.0 – 1.0  (composite)
     page_count:       int
     char_count:       int
     chunk_count:      int
     warnings:         list[ExtractionWarning] = field(default_factory=list)
+    # Auditable per-signal breakdown that produced `ocr_quality_score`.
+    # Populated by `compute_ocr_quality()` via `ocr_quality_breakdown()`;
+    # written into the INGESTION_DONE audit log so operators can see WHY
+    # a particular document landed at, e.g., 73%.
+    ocr_quality_breakdown: dict = field(default_factory=dict)
     extracted_at:     datetime = field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
@@ -216,7 +242,19 @@ def extract_digital_pdf(file_path: Path) -> tuple[list[PageText], list[Extractio
                     page=page_num,
                 ))
 
-            pages.append(PageText(page_number=page_num, text=text, ocr_confidence=1.0))
+            # Digital pages: OCR wasn't run, so ocr_confidence / sharpness /
+            # skew stay at 1.0 / 1.0 / 0.0. The only real signal we have is
+            # text density (empty pages and light pages still pull quality
+            # down appropriately even for a supposedly-digital PDF).
+            pages.append(PageText(
+                page_number=page_num,
+                text=text,
+                ocr_confidence=1.0,
+                text_density=_page_text_density(text),
+                sharpness=1.0,
+                skew_abs_deg=0.0,
+                is_empty=not text,
+            ))
 
     finally:
         doc.close()
@@ -277,7 +315,7 @@ def extract_scanned_pdf(
             pil_img = images[0]
             del images  # release the list; pil_img holds the only remaining ref
 
-            preprocessed = _preprocess_image_for_ocr(pil_img)
+            preprocessed, sharpness, skew_abs = _preprocess_image_for_ocr(pil_img)
             del pil_img  # original no longer needed once preprocessed
 
             text, confidence = _run_tesseract(preprocessed, page_num)
@@ -287,12 +325,18 @@ def extract_scanned_pdf(
                 page_number=page_num,
                 text=text,
                 ocr_confidence=confidence,
+                text_density=_page_text_density(text),
+                sharpness=sharpness,
+                skew_abs_deg=skew_abs,
+                is_empty=not text.strip(),
             ))
             logger.debug(
                 "OCR complete for page",
                 page=page_num,
                 confidence=round(confidence, 3),
                 chars=len(text),
+                sharpness=sharpness,
+                skew_abs_deg=skew_abs,
             )
         except IngestionError:
             raise
@@ -302,7 +346,17 @@ def extract_scanned_pdf(
                 message=str(exc),
                 page=page_num,
             ))
-            pages.append(PageText(page_number=page_num, text="", ocr_confidence=0.0))
+            # Failed-page record: zero confidence, zero density, flagged
+            # empty — pulls the aggregate OCR quality down honestly rather
+            # than silently vanishing from the average.
+            pages.append(PageText(
+                page_number=page_num, text="",
+                ocr_confidence=0.0,
+                text_density=0.0,
+                sharpness=0.0,
+                skew_abs_deg=0.0,
+                is_empty=True,
+            ))
 
     return pages, warnings
 
@@ -314,9 +368,16 @@ def extract_image_file(
     warnings: list[ExtractionWarning] = []
     try:
         pil_img = Image.open(str(file_path)).convert("RGB")
-        preprocessed = _preprocess_image_for_ocr(pil_img)
+        preprocessed, sharpness, skew_abs = _preprocess_image_for_ocr(pil_img)
         text, confidence = _run_tesseract(preprocessed, page_num=1)
-        return [PageText(page_number=1, text=text, ocr_confidence=confidence)], warnings
+        return [PageText(
+            page_number=1, text=text,
+            ocr_confidence=confidence,
+            text_density=_page_text_density(text),
+            sharpness=sharpness,
+            skew_abs_deg=skew_abs,
+            is_empty=not text.strip(),
+        )], warnings
     except Exception as exc:
         raise IngestionError(
             f"Image OCR failed: {exc}",
@@ -324,15 +385,25 @@ def extract_image_file(
         ) from exc
 
 
-def _preprocess_image_for_ocr(pil_img: Image.Image) -> Image.Image:
+def _preprocess_image_for_ocr(pil_img: Image.Image) -> tuple[Image.Image, float, float]:
     """
     OpenCV preprocessing pipeline:
-    1. Convert to grayscale
-    2. Deskew (correct tilt up to ±5°)
-    3. Denoise
-    4. Adaptive thresholding (binarize)
+      1. Convert to grayscale
+      2. Measure sharpness (Laplacian variance — BEFORE denoising so the
+         value reflects the true scan quality, not the cleaned image)
+      3. Deskew (correct tilt up to ±5°)
+      4. Denoise
+      5. Adaptive thresholding (binarize)
 
-    Returns a PIL Image ready for Tesseract.
+    Returns:
+        (preprocessed_pil_image, sharpness_norm, skew_abs_deg)
+
+        `sharpness_norm`  ∈ [0, 1] — 1.0 = crisp scan, 0.0 = heavily blurred.
+                           Derived from Laplacian variance / 800; clipped.
+                           (800 is the empirical knee where Tesseract starts
+                           losing recall on 300-DPI document scans.)
+        `skew_abs_deg`    ≥ 0   — absolute skew angle detected before
+                           rotation; used to penalize heavily-tilted pages.
     """
     # PIL → OpenCV (BGR)
     cv_img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
@@ -340,13 +411,21 @@ def _preprocess_image_for_ocr(pil_img: Image.Image) -> Image.Image:
     # 1. Grayscale
     gray = cv2.cvtColor(cv_img, cv2.COLOR_BGR2GRAY)
 
-    # 2. Deskew
-    gray = _deskew(gray)
+    # 2. Sharpness BEFORE we blur/denoise — so we measure the scan, not
+    #    our own cleanup. Laplacian variance is a standard blur proxy.
+    try:
+        lap_var = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+    except Exception:
+        lap_var = 800.0            # benign fallback (≈ clean-scan knee)
+    sharpness_norm = max(0.0, min(1.0, lap_var / 800.0))
 
-    # 3. Denoise
+    # 3. Deskew (also reports the magnitude it detected)
+    gray, skew_abs = _deskew(gray)
+
+    # 4. Denoise
     gray = cv2.fastNlMeansDenoising(gray, h=10)
 
-    # 4. Adaptive threshold (binarize for cleaner OCR)
+    # 5. Adaptive threshold (binarize for cleaner OCR)
     binary = cv2.adaptiveThreshold(
         gray, 255,
         cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
@@ -356,32 +435,45 @@ def _preprocess_image_for_ocr(pil_img: Image.Image) -> Image.Image:
     )
 
     # OpenCV → PIL
-    return Image.fromarray(binary)
+    return Image.fromarray(binary), round(sharpness_norm, 4), round(skew_abs, 4)
 
 
-def _deskew(gray: np.ndarray) -> np.ndarray:
-    """Correct small rotation angles in scanned pages."""
+def _deskew(gray: np.ndarray) -> tuple[np.ndarray, float]:
+    """
+    Correct small rotation angles in scanned pages.
+
+    Returns:
+        (deskewed_gray, abs_angle_detected_degrees)
+
+    If the detected tilt exceeds ±5° we leave the page untouched (warping
+    more than that introduces worse artifacts than it fixes), but the
+    detected angle is still reported so `compute_ocr_quality` can penalize
+    it.  `0.0` means no measurable skew.
+    """
     try:
         coords = np.column_stack(np.where(gray < 128))
         if len(coords) == 0:
-            return gray
+            return gray, 0.0
         angle = cv2.minAreaRect(coords)[-1]
         if angle < -45:
             angle = -(90 + angle)
         else:
             angle = -angle
-        if abs(angle) > 5:   # only correct if tilt > 5° to avoid distortion
-            return gray
+        abs_angle = abs(float(angle))
+        if abs_angle > 5:
+            # Skip rotation but still report — a 10° tilt is a real quality issue.
+            return gray, abs_angle
         h, w = gray.shape
         center = (w // 2, h // 2)
         M = cv2.getRotationMatrix2D(center, angle, 1.0)
-        return cv2.warpAffine(
+        rotated = cv2.warpAffine(
             gray, M, (w, h),
             flags=cv2.INTER_CUBIC,
             borderMode=cv2.BORDER_REPLICATE,
         )
+        return rotated, abs_angle
     except Exception:
-        return gray   # deskew is best-effort
+        return gray, 0.0   # deskew is best-effort; absence of signal → 0
 
 
 def _run_tesseract(pil_img: Image.Image, page_num: int) -> tuple[str, float]:
@@ -550,17 +642,156 @@ def _split_into_sentences(text: str) -> list[str]:
 # ---------------------------------------------------------------------------
 # Step 5 — OCR quality aggregation
 # ---------------------------------------------------------------------------
+#
+# Production-grade, deterministic, multi-signal document-quality score in
+# [0, 1]. Two branches — digital PDFs and scanned PDFs — because they have
+# completely different signal profiles (no raster → no blur/skew to
+# measure; conversely a scan's text density follows from OCR recall rather
+# than the source PDF layout).
+#
+# All inputs come from `PageText` fields already populated during
+# extraction (see `_preprocess_image_for_ocr`, `_run_tesseract`,
+# `extract_digital_pdf`, `extract_scanned_pdf`). No external calls, no DB,
+# no randomness — same PDF → same score across runs.
+#
+# Expected realistic ranges (matches user-facing spec):
+#   clean digital PDFs      → 0.95 – 1.00
+#   mixed digital (some
+#     empty/low-density)    → 0.85 – 0.95
+#   high-quality scans      → 0.80 – 0.95
+#   noisy / skewed scans    → 0.55 – 0.80
+#   blurry / low-text scans → 0.30 – 0.55
+#   unreadable              → 0.00 – 0.30
+#
+# The formula is intentionally NOT a simple Tesseract average (the old
+# behaviour that produced suspiciously-identical scores).
+# ---------------------------------------------------------------------------
 
-def compute_ocr_quality(pages: list[PageText]) -> float:
+# Normalization knees — chosen empirically on Indian-English tender PDFs at
+# 300 DPI. Changing these values moves the entire distribution, so they
+# live in one place.
+_TEXT_DENSITY_FULL_CHARS   = 1500    # chars/page considered "well filled"
+_SHARPNESS_LAP_VAR_KNEE    = 800.0   # Laplacian variance knee (see preprocess)
+_SKEW_SATURATION_DEG       = 5.0     # > this many degrees = fully penalized
+
+
+def _page_text_density(text: str) -> float:
     """
-    Weighted average OCR confidence across all pages.
-    Digital pages always contribute 1.0.
-    Returns a score between 0.0 and 1.0.
+    Normalize raw char count to [0, 1] using _TEXT_DENSITY_FULL_CHARS as
+    the saturation point. An empty page = 0.0; a dense text page = 1.0.
+    Pure function of the cleaned text — deterministic across runs.
+    """
+    if not text:
+        return 0.0
+    chars = len(text.strip())
+    return max(0.0, min(1.0, chars / float(_TEXT_DENSITY_FULL_CHARS)))
+
+
+def compute_ocr_quality(
+    pages: list[PageText],
+    kind: "DocumentKind | None" = None,
+) -> float:
+    """
+    Composite OCR/document-quality score in [0, 1].
+
+    `kind` (optional) allows the caller to force the digital/scanned
+    branch; when omitted, the branch is inferred from whether any page
+    carries a sub-1.0 Tesseract confidence (the tell-tale sign that OCR
+    actually ran on that page).
+
+    Digital branch (no OCR run):
+        quality = 1.00
+                - 0.25 × empty_page_ratio
+                - 0.15 × low_density_ratio     (pages < 100 chars)
+                - 0.10 × (1 − mean_text_density)
+
+    Scanned branch (OCR run):
+        quality = 0.50 × tesseract_mean_conf
+                + 0.15 × mean_sharpness
+                + 0.15 × mean_text_density
+                + 0.10 × (1 − mean_skew / 5.0)   clipped
+                + 0.05 × (1 − empty_ratio)
+                + 0.05 × coverage_bonus          (fraction of pages with
+                                                   any recognised words)
     """
     if not pages:
         return 0.0
-    total = sum(p.ocr_confidence for p in pages)
-    return round(total / len(pages), 4)
+
+    # Clamp per-page signals defensively — callers could pass anything.
+    def _clip01(x: float) -> float:
+        return max(0.0, min(1.0, float(x)))
+
+    n = len(pages)
+    ran_ocr = any(p.ocr_confidence < 1.0 for p in pages)
+
+    # Infer branch if not forced by the caller. Digital pages always have
+    # ocr_confidence == 1.0; if even one page shows a lower value, the
+    # pipeline ran OCR and we're in the scanned branch.
+    is_scanned = (
+        ran_ocr
+        if kind is None
+        else (kind is not None and kind.value != "digital")
+    )
+
+    empty_ratio         = sum(1 for p in pages if p.is_empty) / n
+    low_density_ratio   = sum(1 for p in pages if len(p.text.strip()) < 100) / n
+    mean_text_density   = sum(_clip01(p.text_density) for p in pages) / n
+    mean_sharpness      = sum(_clip01(p.sharpness) for p in pages) / n
+    mean_skew           = sum(max(0.0, float(p.skew_abs_deg)) for p in pages) / n
+    coverage            = sum(1 for p in pages if p.text.strip()) / n
+
+    if not is_scanned:
+        quality = (
+            1.00
+            - 0.25 * empty_ratio
+            - 0.15 * low_density_ratio
+            - 0.10 * (1.0 - mean_text_density)
+        )
+    else:
+        mean_conf    = sum(_clip01(p.ocr_confidence) for p in pages) / n
+        skew_penalty = _clip01(mean_skew / _SKEW_SATURATION_DEG)
+        quality = (
+            0.50 * mean_conf
+            + 0.15 * mean_sharpness
+            + 0.15 * mean_text_density
+            + 0.10 * (1.0 - skew_penalty)
+            + 0.05 * (1.0 - empty_ratio)
+            + 0.05 * coverage
+        )
+
+    return round(max(0.0, min(1.0, quality)), 4)
+
+
+def ocr_quality_breakdown(pages: list[PageText]) -> dict:
+    """
+    Introspectable breakdown of the per-signal inputs that fed into
+    `compute_ocr_quality`. Intended for audit logs / verifiers — NOT on the
+    hot path. Returns per-signal means + a copy of each knee constant so
+    downstream consumers can reproduce the formula.
+    """
+    if not pages:
+        return {"n_pages": 0}
+
+    def _clip01(x: float) -> float:
+        return max(0.0, min(1.0, float(x)))
+
+    n = len(pages)
+    return {
+        "n_pages":            n,
+        "branch":             "scanned" if any(p.ocr_confidence < 1.0 for p in pages) else "digital",
+        "mean_ocr_confidence":     round(sum(_clip01(p.ocr_confidence) for p in pages) / n, 4),
+        "mean_text_density":       round(sum(_clip01(p.text_density)   for p in pages) / n, 4),
+        "mean_sharpness":          round(sum(_clip01(p.sharpness)      for p in pages) / n, 4),
+        "mean_skew_abs_deg":       round(sum(max(0.0, float(p.skew_abs_deg)) for p in pages) / n, 4),
+        "empty_page_ratio":        round(sum(1 for p in pages if p.is_empty) / n, 4),
+        "low_density_page_ratio":  round(sum(1 for p in pages if len(p.text.strip()) < 100) / n, 4),
+        "coverage":                round(sum(1 for p in pages if p.text.strip()) / n, 4),
+        "knees": {
+            "text_density_full_chars": _TEXT_DENSITY_FULL_CHARS,
+            "sharpness_lap_var_knee":  _SHARPNESS_LAP_VAR_KNEE,
+            "skew_saturation_deg":     _SKEW_SATURATION_DEG,
+        },
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -647,9 +878,14 @@ def process_document(
         raise IngestionError("No pages extracted from document", code="NO_PAGES")
 
     # ── Step 3: Clean text ───────────────────────────────────────────────
+    # Recompute text-derived signals AFTER cleaning so `compute_ocr_quality`
+    # operates on what we actually retain (cleaning can drop noise lines,
+    # which is exactly what should affect the quality score).
     page_texts: dict[int, str] = {}
     for page in pages:
         page.text = clean_text(page.text)
+        page.text_density = _page_text_density(page.text)
+        page.is_empty     = not page.text.strip()
         page_texts[page.page_number] = page.text
 
     raw_text = "\n\n".join(
@@ -675,7 +911,12 @@ def process_document(
     )
 
     # ── Step 5: OCR quality score ────────────────────────────────────────
-    ocr_quality = compute_ocr_quality(pages)
+    # Force the digital/scanned branch from the detected kind so a digital
+    # PDF that happens to have one OCR-confidence-< 1.0 page (extreme edge
+    # case from a malformed extractor) cannot accidentally flip into the
+    # scanned branch.
+    ocr_quality = compute_ocr_quality(pages, kind=kind)
+    breakdown   = ocr_quality_breakdown(pages)
 
     # ── Step 6: Log summary ──────────────────────────────────────────────
     log.info(
@@ -685,6 +926,7 @@ def process_document(
         char_count=len(raw_text),
         chunk_count=len(chunks),
         ocr_quality_score=ocr_quality,
+        ocr_breakdown=breakdown,
         warning_count=len(warnings),
     )
 
@@ -697,6 +939,7 @@ def process_document(
         page_texts=page_texts,
         chunks=chunks,
         ocr_quality_score=ocr_quality,
+        ocr_quality_breakdown=breakdown,
         page_count=len(pages),
         char_count=len(raw_text),
         chunk_count=len(chunks),

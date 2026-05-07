@@ -125,18 +125,24 @@ def ingest_file(self, file_id: str, job_id: str, file_type: str = "unknown") -> 
                 await _persist_chunks(db, result, uuid.UUID(file_id), uuid.UUID(job_id))
 
                 # ── Write audit log: ingestion done ──────────────────────
+                # `ocr_quality_breakdown` carries the per-signal inputs that
+                # produced `ocr_quality` (mean Tesseract confidence, mean
+                # sharpness, mean skew, empty-page ratio, etc.). Persisting
+                # it keeps the score auditable — operators / verifiers can
+                # see WHY a given file scored 73% and reproduce the formula.
                 db.add(AuditLog(
                     job_id=uuid.UUID(job_id),
                     file_id=uuid.UUID(file_id),
                     action=AuditAction.INGESTION_DONE,
                     actor="system",
                     details={
-                        "page_count": result.page_count,
-                        "chunk_count": result.chunk_count,
-                        "char_count": result.char_count,
-                        "ocr_quality": result.ocr_quality_score,
-                        "document_kind": result.document_kind.value,
-                        "warning_count": len(result.warnings),
+                        "page_count":             result.page_count,
+                        "chunk_count":            result.chunk_count,
+                        "char_count":             result.char_count,
+                        "ocr_quality":            result.ocr_quality_score,
+                        "ocr_quality_breakdown":  result.ocr_quality_breakdown,
+                        "document_kind":          result.document_kind.value,
+                        "warning_count":          len(result.warnings),
                     },
                 ))
 

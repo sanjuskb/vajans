@@ -4,6 +4,7 @@ import type {
   EvaluationResponse, InsightResponse, ComparisonResponse,
   DashboardResponse, ReviewActionCreate, ReviewListResponse,
   AuditTrailResponse, CriteriaListResponse, ExtractionsResponse,
+  TimelineResponse, VerdictDistributionResponse,
 } from "./types";
 
 // ── Auth ─────────────────────────────────────────────────────────────────────
@@ -134,4 +135,14 @@ export const analyzeApi = {
 
   getDashboard: (jobId: string) =>
     apiClient.get<DashboardResponse>(`/v1/analyze/${jobId}/dashboard`).then((r) => r.data),
+};
+
+// ── Analytics ────────────────────────────────────────────────────────────────
+
+export const analyticsApi = {
+  getTimeline: (days = 7) =>
+    apiClient.get<TimelineResponse>(`/v1/analytics/timeline?days=${days}`).then((r) => r.data),
+
+  getVerdicts: () =>
+    apiClient.get<VerdictDistributionResponse>(`/v1/analytics/verdicts`).then((r) => r.data),
 };

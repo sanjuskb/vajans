@@ -163,6 +163,16 @@ class FileRead(BaseModel):
     page_count:      Optional[int]
     created_at:      datetime
     updated_at:      datetime
+    # Post-ingestion metadata, populated from the latest INGESTION_DONE
+    # audit-log entry on the GET endpoints. NOT persisted on the File row
+    # itself — keeping the model thin and the audit log the single source
+    # of truth for ingestion outcomes.
+    #   ocr_quality   ∈ [0, 1]; 1.0 ≈ clean digital PDF, lower for noisy scans.
+    #   document_kind  "digital" | "scanned" | "image" | None (pre-ingest).
+    # Both are Optional so the schema is a pure superset of the previous
+    # contract and existing clients keep working.
+    ocr_quality:     Optional[float] = None
+    document_kind:   Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 

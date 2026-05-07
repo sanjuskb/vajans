@@ -1002,12 +1002,46 @@ function FinalDecisionPanel({ dashboard, criteriaDetails, evalBidders }: {
     new Map(dashboard.criteria.map((c: any) => [c.criterion_id, c])).values()
   );
 
-  const bg = overallQualified ? C.passBg : C.failBg;
-  const borderColor = overallQualified ? C.passSolid + "40" : C.failSolid + "40";
+  // Verdict tone drives a hairline top-accent strip and a barely-there
+  // gradient wash at the very top of the panel. The panel body itself stays
+  // neutral (`--card-bg`, same surface used by every other dashboard card),
+  // so the UI reads as a professional analytics console rather than an
+  // error state. Three-way tone:
+  //   pass   → emerald   (all bidders qualified)
+  //   fail   → muted red (any bidder disqualified)
+  //   review → amber     (no disqualifications but unresolved items)
+  // NOTE: this is presentation only — the verdict logic (`overallQualified`,
+  // `anyDisqualified`, per-bidder status) is unchanged.
+  const accentTone: "pass" | "fail" | "review" =
+    anyDisqualified ? "fail" : allQualified ? "pass" : "review";
+  const accentColor =
+    accentTone === "pass" ? C.passSolid :
+    accentTone === "fail" ? C.failSolid :
+                            C.uncertainSolid;
 
   return (
-    <div style={{ background: bg, border: `1px solid ${borderColor}`, borderRadius: 8, padding: SP.xl, marginBottom: SP.xl }}>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: SP.xl }}>
+    <div style={{
+      background:      C.cardBg,
+      border:          `1px solid ${C.borderSubtle}`,
+      borderRadius:    10,
+      padding:         SP.xl,
+      marginBottom:    SP.xl,
+      position:        "relative",
+      overflow:        "hidden",
+      // Subtle verdict wash — ≈7% alpha, fades to transparent over 48px.
+      // Enough to telegraph state; nowhere near an alarm background.
+      backgroundImage: `linear-gradient(180deg, ${accentColor}12 0%, transparent 48px)`,
+    }}>
+      {/* Hairline verdict accent — 2px strip hugging the top edge.
+          Replaces the former full-panel red background as the single
+          place the verdict tone lives. */}
+      <div aria-hidden style={{
+        position: "absolute",
+        top: 0, left: 0, right: 0, height: 2,
+        background: accentColor,
+        opacity: 0.9,
+      }} />
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: SP.xl, position: "relative" }}>
 
         {/* Column 1: Verdict — per bidder when multi-bidder */}
         <div>
@@ -1024,8 +1058,18 @@ function FinalDecisionPanel({ dashboard, criteriaDetails, evalBidders }: {
                 return (
                   <div key={i} style={{
                     display: "flex", alignItems: "center", justifyContent: "space-between",
-                    background: "rgba(0,0,0,0.04)", borderRadius: 6, padding: `${SP.sm}px ${SP.md}px`,
-                    border: `1px solid ${isQ ? C.passSolid + "30" : C.failSolid + "30"}`,
+                    // Elevated chip on the neutral panel — `--bg-tertiary`
+                    // is one step lighter than `--card-bg` in dark mode and
+                    // one step darker in light mode, giving clean nesting
+                    // in both themes without any verdict-tinted surface.
+                    background: C.bgTertiary,
+                    borderRadius: 6,
+                    padding: `${SP.sm}px ${SP.md}px`,
+                    // Hairline neutral border everywhere, with a 3px
+                    // verdict-colored left stripe as the single verdict
+                    // cue on the row itself. Classic enterprise pattern.
+                    border: `1px solid ${C.borderSubtle}`,
+                    borderLeft: `3px solid ${isQ ? C.passSolid : C.failSolid}`,
                   }}>
                     <div>
                       <div style={{ fontSize: 12, color: C.textPrimary, fontWeight: 600, marginBottom: 2 }}>
@@ -1378,8 +1422,14 @@ function DocumentsTab({ tenderFiles, bidderFiles, uploading, onUploadTender, onU
           </thead>
           <tbody>
             {files.map((f) => {
-              const meta = (f as any).metadata ?? {};
-              const ocrQuality = meta.ocr_quality ?? (f.status === "processed" ? 0.88 : 0);
+              // Real backend OCR quality (sourced from the latest INGESTION_DONE
+              // audit-log entry by the /files/job endpoint). Treat missing as
+              // genuinely missing — render "—". The previous code substituted a
+              // hardcoded 0.88 for every processed file, which is exactly the
+              // "every doc shows 88%" bug we just fixed.
+              const ocrQuality: number | null =
+                typeof f.ocr_quality === "number" ? f.ocr_quality : null;
+              const pageCount = f.page_count ?? null;
               return (
                 <tr key={f.id} style={{ borderBottom: `1px solid ${C.borderSubtle}` }}>
                   <td style={{ padding: `${SP.sm}px ${SP.lg}px` }}>
@@ -1397,10 +1447,12 @@ function DocumentsTab({ tenderFiles, bidderFiles, uploading, onUploadTender, onU
                     {(f.size_bytes / 1024).toFixed(1)} KB
                   </td>
                   <td style={{ padding: `${SP.sm}px ${SP.lg}px`, fontSize: 12, color: C.textTertiary, fontFamily: "JetBrains Mono, monospace" }}>
-                    {meta.page_count ?? "—"}
+                    {pageCount ?? "—"}
                   </td>
                   <td style={{ padding: `${SP.sm}px ${SP.lg}px` }}>
-                    {f.status === "processed" ? <OcrBar quality={ocrQuality} /> : <span style={{ fontSize: 12, color: C.textTertiary }}>—</span>}
+                    {f.status === "processed" && ocrQuality !== null
+                      ? <OcrBar quality={ocrQuality} />
+                      : <span style={{ fontSize: 12, color: C.textTertiary }}>—</span>}
                   </td>
                   <td style={{ padding: `${SP.sm}px ${SP.lg}px` }}>
                     <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: C.textSecondary }}>

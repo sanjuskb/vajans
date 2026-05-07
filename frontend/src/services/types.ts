@@ -95,6 +95,13 @@ export interface FileRecord {
   page_count: number | null;
   created_at: string;
   updated_at: string;
+  // Post-ingestion enrichment from the backend `/files/job` and `/files/{id}`
+  // endpoints. Both are optional because they're populated only after the
+  // INGESTION_DONE audit-log entry is written. NEVER substitute a placeholder
+  // when null — render the cell as "—" so the operator knows the document
+  // hasn't finished processing yet (or hasn't been ingested in this build).
+  ocr_quality?: number | null;
+  document_kind?: "digital" | "scanned" | "image" | null;
 }
 
 // ── Phase 4 — Evaluation ──────────────────────────────────────────────────────
@@ -135,6 +142,30 @@ export interface EvaluationResponse {
   summary: EvalSummary;
   results: EvalResultRow[];
   bidders: BidderEvalSummary[];
+}
+
+// ── Analytics ─────────────────────────────────────────────────────────────────
+
+export interface TimelinePoint {
+  date: string;   // ISO date "YYYY-MM-DD"
+  count: number;
+}
+
+export interface TimelineResponse {
+  days: number;
+  points: TimelinePoint[];
+}
+
+export interface VerdictBucket {
+  verdict: string;
+  label: string;
+  count: number;
+  color: string;   // hex from backend — single source of truth
+}
+
+export interface VerdictDistributionResponse {
+  total: number;
+  buckets: VerdictBucket[];
 }
 
 // ── Phase 5 — Review ──────────────────────────────────────────────────────────

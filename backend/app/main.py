@@ -16,7 +16,7 @@ from app.core.settings import settings
 from app.db.session import init_db
 
 # API Routers
-from app.api.v1.endpoints import jobs, files, health, analyze, auth
+from app.api.v1.endpoints import jobs, files, health, analyze, auth, analytics
 
 setup_logging()
 logger = structlog.get_logger("vajans.app")
@@ -126,7 +126,8 @@ def create_app() -> FastAPI:
     app.include_router(auth.router,   prefix="/api/v1", tags=["auth"])
     app.include_router(jobs.router,   prefix="/api/v1", tags=["jobs"])
     app.include_router(files.router,  prefix="/api/v1", tags=["files"])
-    app.include_router(analyze.router, prefix="/api/v1", tags=["analyze"])
+    app.include_router(analyze.router,    prefix="/api/v1", tags=["analyze"])
+    app.include_router(analytics.router,  prefix="/api/v1", tags=["analytics"])
 
     return app
 
