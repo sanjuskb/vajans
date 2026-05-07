@@ -204,7 +204,9 @@ function CriterionRow({ criterion, detail, evalRow, extraction, bidderFileName, 
         <Badge variant={verdictBadge} />
         {/* Trust */}
         <div style={{ display: "flex", alignItems: "center" }}>
-          <TrustBar value={evalRow?.score ?? 0.5} />
+          {/* Real evaluator score; 0 (not 0.5) when the row is absent so
+              the bar reads as 'no signal' rather than a fake half-bar. */}
+          <TrustBar value={evalRow?.score ?? 0} />
         </div>
         {/* Extracted */}
         <div style={{ fontSize: 12, fontFamily: "JetBrains Mono, monospace", color: C.textSecondary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -270,12 +272,15 @@ function CriterionRow({ criterion, detail, evalRow, extraction, bidderFileName, 
               <div style={{ display: "flex", gap: SP.sm, alignItems: "center", marginTop: SP.sm }}>
                 <span style={{ fontSize: 11, color: C.textTertiary, minWidth: 64 }}>Confidence:</span>
                 <div style={{ flex: 1, height: 5, background: C.bgPrimary, borderRadius: 3, overflow: "hidden", maxWidth: 72 }}>
+                  {/* Real extraction confidence first, evaluator score next,
+                      0 last (NEVER 0.5) — the half-bar placeholder caused
+                      the Review Queue 50%-everywhere bug. */}
                   <div style={{
                     height: "100%",
-                    width: `${(extraction?.extraction_confidence ?? evalRow?.score ?? 0.5) * 100}%`,
-                    background: (extraction?.extraction_confidence ?? evalRow?.score ?? 0.5) >= 0.80
+                    width: `${(extraction?.extraction_confidence ?? evalRow?.score ?? 0) * 100}%`,
+                    background: (extraction?.extraction_confidence ?? evalRow?.score ?? 0) >= 0.80
                       ? C.passSolid
-                      : (extraction?.extraction_confidence ?? evalRow?.score ?? 0.5) >= 0.55
+                      : (extraction?.extraction_confidence ?? evalRow?.score ?? 0) >= 0.55
                       ? C.uncertainSolid
                       : C.failSolid,
                     borderRadius: 3,
@@ -283,7 +288,7 @@ function CriterionRow({ criterion, detail, evalRow, extraction, bidderFileName, 
                   }} />
                 </div>
                 <span style={{ fontSize: 11, fontFamily: "JetBrains Mono, monospace", color: C.textSecondary, fontWeight: 600 }}>
-                  {Math.round((extraction?.extraction_confidence ?? evalRow?.score ?? 0.5) * 100)}%
+                  {Math.round((extraction?.extraction_confidence ?? evalRow?.score ?? 0) * 100)}%
                 </span>
               </div>
             </div>

@@ -4,11 +4,14 @@ VAJANS — Phase 4 Deterministic Evaluation Engine
 Pure Python. No async. No DB access. No external calls.
 
 Rules:
-  - ambiguous criterion                → UNKNOWN  (score 0.5)
-  - no threshold AND no value          → UNKNOWN  (score 0.5)
-  - bidder value not found in document → UNKNOWN  (score 0.5)
-  - value found, numeric threshold     → operator → PASS (1.0) or FAIL (0.0)
+  - ambiguous criterion                → UNKNOWN  (score = _UNKNOWN_SCORE)
+  - no threshold AND no value          → UNKNOWN  (score = _UNKNOWN_SCORE)
+  - bidder value not found in document → UNKNOWN  (score = _UNKNOWN_SCORE)
+  - value found, numeric threshold     → operator → PASS (extraction_confidence) or FAIL (0.0)
   - value found, no numeric threshold  → signal-based → PASS or FAIL
+
+  See `app/services/insight_engine._compute_review_confidence` for the
+  Review-Queue confidence model that surfaces these scores to the UI.
 
 TrustScore formula (stored per criterion result):
   TrustScore = 0.30 × ocr_quality + 0.25 × field_completeness
@@ -218,6 +221,13 @@ def evaluate_criterion(criterion: Dict, extracted_value: Any = None, confidence:
         "expired", "invalid", "blacklisted", "debarred",
         "cancelled", "revoked", "suspended",
         "not registered", "not valid", "lapsed",
+        # Explicit denial of certification / registration possession
+        "does not hold", "not held", "not_held",
+        "not yet", "not yet allotted", "not yet issued", "not yet been issued",
+        "under process", "in process", "in_process",
+        "pending", "applied for", "application pending", "yet to be",
+        "not certified", "not currently certified",
+        "no certification", "no valid certificate",
     )
     if any(sig in val_lower for sig in _FAIL_SIGNALS):
         return {

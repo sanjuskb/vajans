@@ -17,6 +17,10 @@ interface ReviewItem {
   verdict: string;
   explanation: string;
   importance: string;
+  /** Real per-row confidence from the backend insight engine.
+   *  Populated from `CriterionInsight.review_confidence`; falls back through
+   *  `extraction_confidence` → `score` and finally `0` when the backend
+   *  cannot supply a signal (NEVER a synthetic 0.5). */
   score: number;
   escalatedAt: string;
 }
@@ -53,6 +57,17 @@ export default function ReviewPage() {
           const dash = await analyzeApi.getDashboard(job.id);
           for (const c of dash.criteria) {
             if (c.verdict === "unknown") {
+              // Real backend confidence chain — never a synthetic 0.5.
+              // The backend `insight_engine._compute_review_confidence`
+              // already returns the right value; the extra fallbacks
+              // exist only for older API responses that pre-date this
+              // field, and use 0 (not 0.5) so a missing signal renders
+              // as an empty bar instead of a misleading half-bar.
+              const confidence =
+                c.review_confidence ??
+                (c.extraction_confidence ?? undefined) ??
+                c.score ??
+                0;
               items.push({
                 jobId:          job.id,
                 jobTitle:       job.title,
@@ -61,7 +76,7 @@ export default function ReviewPage() {
                 verdict:        c.verdict,
                 explanation:    c.explanation,
                 importance:     c.importance_level,
-                score:          0.5,
+                score:          confidence,
                 escalatedAt:    job.updated_at,
               });
             }

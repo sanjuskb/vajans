@@ -1,13 +1,18 @@
 // ── Core enums ───────────────────────────────────────────────────────────────
 
 export type JobStatus =
-  | "pending" | "ingesting" | "extracting" | "evaluating" | "completed" | "failed";
+  | "pending"
+  | "ingesting"
+  | "extracting"
+  | "evaluating"
+  | "completed"
+  | "failed";
 
-export type FileType   = "tender" | "bidder";
+export type FileType = "tender" | "bidder";
 export type FileStatus = "uploaded" | "processing" | "processed" | "failed";
-export type Verdict    = "pass" | "fail" | "unknown";
+export type Verdict = "pass" | "fail" | "unknown";
 export type Importance = "high" | "medium" | "low";
-export type Severity   = "critical" | "warning" | "info";
+export type Severity = "critical" | "warning" | "info";
 export type ReviewerAction = "approve" | "edit" | "reject";
 
 // ── Phase 3 — Criteria detail (from /criteria endpoint) ──────────────────────
@@ -181,6 +186,18 @@ export interface CriterionInsight {
   importance_level: Importance;
   bidder_file_id?: string | null;
   bidder_name?: string;
+  // Real per-row confidence signals (backend `insight_engine`).
+  // All optional for backward compatibility with older API responses.
+  score?: number; // evaluator score, 0–1
+  extraction_confidence?: number | null; // extraction signal, 0–1, null = no extraction row
+  ocr_quality?: number; // 0–1; 1.0 ≈ digital PDF
+  review_confidence?: number; // composite, 0–1 — what the Review Queue should display
+  source_snippet?: string | null;
+  page_number?: number | null;
+  extracted_value?: string | null;
+  not_found?: boolean;
+  ambiguous?: boolean;
+  has_threshold?: boolean;
 }
 
 export interface InsightFlag {

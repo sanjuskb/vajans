@@ -125,14 +125,22 @@ _EPF_PATTERN        = re.compile(
 )
 _NOT_BLACKLISTED    = re.compile(r'not\s+(?:blacklisted|debarred|listed)', re.IGNORECASE)
 
-# "5 qualifying projects" (summary mention)
+# Match summary sentences in either word order:
+#   "5 qualifying projects"
+#   "Total qualifying projects: 6 (six)"
+#   "qualifying projects completed: 5"
 _QUALIFYING_PROJECTS_PATTERN = re.compile(
-    r'(\d+)\s+qualifying\s+projects?',
+    r'(?:'
+    r'(?P<n1>\d+)\s+qualifying\s+(?:similar\s+)?projects?'
+    r'|'
+    r'(?:total\s+)?qualifying\s+(?:similar\s+)?projects?'
+    r'(?:\s+completed)?\s*[:\-]?\s*(?P<n2>\d+)'
+    r')',
     re.IGNORECASE,
 )
-# "Total Completed Projects: 5 projects"
+# "Total Completed Projects: 5 projects" / "Total Projects Completed: 5"
 _TOTAL_PROJECTS_PATTERN = re.compile(
-    r'total\s+(?:completed\s+)?projects?\s*[:\-]?\s*(\d+)\s*projects?',
+    r'total\s+(?:completed\s+)?projects?(?:\s+completed)?\s*[:\-]?\s*(\d+)',
     re.IGNORECASE,
 )
 # "Rs. X Crore" followed within 120 chars by a completion month/year
@@ -218,11 +226,12 @@ def _regex_extract_projects(text: str) -> Optional[ExtractedField]:
     """
     field_name = "projects"  # placeholder; caller sets real name
 
-    # P1: Explicit "N qualifying projects" statement
+    # P1: Explicit "N qualifying projects" / "qualifying projects: N" statement
     m = _QUALIFYING_PROJECTS_PATTERN.search(text)
     if m:
         try:
-            count = int(m.group(1))
+            grp = m.group("n1") or m.group("n2")
+            count = int(grp)
             snippet = "Qualifying projects: " + str(count)
             return ExtractedField(
                 field_name=field_name,
@@ -285,6 +294,49 @@ def _regex_extract_projects(text: str) -> Optional[ExtractedField]:
             not_found=False,
         )
 
+    return None
+
+
+# Denial phrases used by the regex fallback (ISO / EPF) to detect explicit
+# admissions that a certification or registration is absent.  Kept narrow so
+# compliant bidders are never mis-flagged.
+_REGEX_DENIAL_PHRASES = (
+    "does not hold", "do not hold", "not held", "not hold",
+    "not yet allotted", "not yet been allotted",
+    "not yet issued",   "not yet been issued",
+    "not yet certified", "not yet registered",
+    "not currently certified", "not currently registered",
+    "not registered",
+    "no valid certificate", "no certification",
+    "status: not held", "status: not registered",
+    "certification status: not", "registration status: not",
+    "application pending", "under process",
+)
+
+
+def _find_denial_in_text(
+    text: str,
+    anchor: int,
+    *,
+    window: int = 600,
+) -> Optional[tuple[str, str]]:
+    """Return (denial_phrase, evidence_snippet) if a denial phrase appears
+    within `window` characters either side of `anchor`, else None.  Used by
+    the ISO/EPF regex fallback so explicit "does not hold" / "not yet
+    allotted" admissions surface as the parsed value (rather than being
+    overridden by the default 'valid' / 'registered' label).
+    """
+    lo = max(0, anchor - window)
+    hi = min(len(text), anchor + window)
+    haystack = text[lo:hi]
+    haystack_lower = haystack.lower()
+    for phrase in _REGEX_DENIAL_PHRASES:
+        idx = haystack_lower.find(phrase)
+        if idx == -1:
+            continue
+        start = max(0, idx - 80)
+        end   = min(len(haystack), idx + len(phrase) + 80)
+        return phrase, haystack[start:end].strip()
     return None
 
 
@@ -369,22 +421,54 @@ def _regex_fallback(field_name: str, chunk_texts: List[str]) -> Optional[Extract
                     confidence=0.95,
                     not_found=False,
                 )
-            else:
+
+            # Denial check: if the bid explicitly admits ISO is not held /
+            # pending / under process, surface that as the parsed value so the
+            # evaluator FAILs the criterion. Without this, a regex match on
+            # "ISO 9001" anywhere in the text would default to "valid" even
+            # for "does not hold a valid ISO 9001:2015 certificate".
+            denial_hit = _find_denial_in_text(combined, iso_m.start())
+            if denial_hit is not None:
+                phrase, evidence = denial_hit
                 return ExtractedField(
                     field_name=field_name,
-                    raw_value=context[:200],
-                    parsed_value="valid",
+                    raw_value=evidence[:200],
+                    parsed_value=phrase,
                     unit=None,
-                    source_snippet=context[:200],
-                    confidence=0.90,
+                    source_snippet=evidence[:200],
+                    confidence=0.92,
                     not_found=False,
                 )
+
+            return ExtractedField(
+                field_name=field_name,
+                raw_value=context[:200],
+                parsed_value="valid",
+                unit=None,
+                source_snippet=context[:200],
+                confidence=0.90,
+                not_found=False,
+            )
 
     # EPF / ESI
     if any(k in key for k in ("epf", "esi", "pf", "provident")):
         m = _EPF_PATTERN.search(combined)
         if m:
             snippet = combined[max(0, m.start() - 20): m.end() + 30].strip()
+            # Denial check (analogous to ISO above): surface explicit denial
+            # of EPF registration so it isn't silently treated as registered.
+            denial_hit = _find_denial_in_text(combined, m.start())
+            if denial_hit is not None:
+                phrase, evidence = denial_hit
+                return ExtractedField(
+                    field_name=field_name,
+                    raw_value=evidence[:200],
+                    parsed_value=phrase,
+                    unit=None,
+                    source_snippet=evidence[:200],
+                    confidence=0.92,
+                    not_found=False,
+                )
             return ExtractedField(
                 field_name=field_name,
                 raw_value=snippet[:200],
@@ -456,16 +540,30 @@ Your ONLY job is to extract specific values from the provided document text.
 
 CRITICAL RULES:
 1. Extract ONLY information explicitly present in the provided text.
-2. If a value is not found, return null for that field. NEVER fabricate.
-3. For financial values: ALWAYS express in Crore INR (e.g., Rs. 8,20,000 = 0.082 Cr; Rs. 8.2 Cr = 8.2).
-4. For turnover with multiple years: return the AVERAGE of the last 3 financial years in Crore.
-5. For GST: return the full 15-character registration number.
-6. For ISO: return "valid" if certificate is current, "expired" if expired.
-7. For EPF/ESI: return "registered" if registration is present.
-8. For project count: return the INTEGER count of qualifying projects meeting the value threshold.
-9. Return ONLY valid JSON. No explanation, no markdown, no preamble.
-10. Include a source_snippet (<= 200 chars) showing exactly where the value was found.
-11. Set confidence between 0.0 and 1.0:
+2. If a value is not found AND the document does not address the criterion at
+   all, return null with not_found=true. NEVER fabricate.
+3. If the document EXPLICITLY ADMITS the certification / registration is
+   absent, expired, pending, in-process, not-yet-issued, applied-for, or
+   "does not hold", you MUST return a non-null parsed_value capturing that
+   denial -- e.g. "does not hold", "not yet allotted", "expired", "pending"
+   -- and set not_found=false. This is a real extracted answer, not a miss.
+4. For financial values: ALWAYS express in Crore INR (e.g., Rs. 8,20,000 = 0.082 Cr; Rs. 8.2 Cr = 8.2).
+5. For turnover with multiple years: return the AVERAGE of the last 3 financial years in Crore.
+6. For GST: return the full 15-character registration number.
+7. For ISO 9001 / ISO 14001 / similar:
+     - if the bid clearly states the cert is current/valid/in force -> parsed_value="valid"
+     - if the bid says the cert is expired -> parsed_value="expired"
+     - if the bid says it does NOT hold / not yet certified / pending -> parsed_value="does not hold"
+8. For EPF / ESI:
+     - if registered with a code -> parsed_value="registered"
+     - if explicitly not yet allotted / pending / not yet issued -> parsed_value="not yet allotted"
+9. For project count: return the INTEGER count of qualifying projects meeting the value threshold.
+10. For non-blacklisting declaration: return parsed_value="not blacklisted" if
+    the bidder declares a clean record, else parsed_value="blacklisted" if
+    they admit any debarment/suspension.
+11. Return ONLY valid JSON. No explanation, no markdown, no preamble.
+12. Include a source_snippet (<= 200 chars) showing exactly where the value was found.
+13. Set confidence between 0.0 and 1.0:
     - 0.90-0.95 = explicitly stated, single clear value
     - 0.80-0.89 = clearly present, minor interpretation
     - 0.70-0.79 = partial or contextual
@@ -550,10 +648,19 @@ def _build_extraction_prompt(
         "- For annual turnover: look for 'Average Annual Turnover' or FY year amounts. "
         "  Return the AVERAGE of the last 3 years in Crore.\n"
         "- For project count: count projects with value >= 2 Crore each. Return integer count.\n"
+        "  If the bid states 'Total qualifying projects: N' or 'We have completed N qualifying projects', use N directly.\n"
         "- For GST: look for 15-character alphanumeric like '29AABCI1234F1Z5'\n"
-        "- For ISO: check if certificate says 'valid', 'expired', or has expiry date\n"
-        "- For EPF/ESI: look for registration numbers, return 'registered' if found\n"
-        "- For blacklisting: return 'not_blacklisted' if company declares clean record\n\n"
+        "- For ISO 9001 / similar certifications:\n"
+        "    valid+in-force      -> parsed_value='valid'\n"
+        "    expired             -> parsed_value='expired'\n"
+        "    bidder admits NOT held / pending / under process -> parsed_value='does not hold'\n"
+        "- For EPF/ESI:\n"
+        "    has codes / registered -> parsed_value='registered'\n"
+        "    'not yet issued' / 'not yet allotted' / 'pending' -> parsed_value='not yet allotted'\n"
+        "- For blacklisting: parsed_value='not blacklisted' if company declares clean record;\n"
+        "    parsed_value='blacklisted' if they admit any debarment.\n"
+        "- Whenever the bid EXPLICITLY admits a mandatory cert/registration is absent,\n"
+        "  pending or expired, set not_found=false and put the denial verbatim into parsed_value.\n\n"
         "DOCUMENT TEXT:\n" + context + "\n\n"
         "Return a JSON object with this EXACT structure:\n"
         '{\n'
@@ -689,8 +796,12 @@ async def extract_criterion_fields(
                 model_used="regex-fallback",
             )
 
-    # Step 4: Parse LLM output
-    llm_fields = _parse_llm_output(raw_output, fields_needing_llm, criterion_id)
+    # Step 4: Parse LLM output (pass chunks so the denial-override can scan
+    # the full retrieved context, not just the LLM-truncated snippet).
+    llm_fields = _parse_llm_output(
+        raw_output, fields_needing_llm, criterion_id,
+        retrieved_chunks=retrieved_chunks,
+    )
 
     # Step 5: For LLM not_found, apply regex fallback
     final_fields = list(regex_results.values())
@@ -731,6 +842,7 @@ def _parse_llm_output(
     raw_output: str,
     expected_fields: List[Dict[str, str]],
     criterion_id: str,
+    retrieved_chunks: Optional[List[str]] = None,
 ) -> List[ExtractedField]:
     """Parse and validate LLM JSON output."""
     try:
@@ -772,6 +884,21 @@ def _parse_llm_output(
             pv = None
             not_fnd = True
 
+        # Post-LLM denial override.  Mitigates a gpt-4o-mini failure mode in
+        # which the model grabs a nearby presence word ("valid", "registered")
+        # even when the surrounding retrieved text explicitly admits the
+        # certification is absent.  For `contains`-style fields (ISO, EPF/ESI,
+        # etc.) we scan the verbatim snippet AND the full retrieved chunks
+        # for unambiguous denial phrases; if found we overwrite parsed_value
+        # with the denial so the downstream evaluator marks the criterion FAIL.
+        pv, not_fnd, snippet = _apply_denial_override(
+            field_name=fname,
+            parsed_value=pv,
+            not_found=not_fnd,
+            snippet=snippet,
+            retrieved_chunks=retrieved_chunks,
+        )
+
         confidence = float(llm_f.get("confidence", 0.20))
 
         if raw_val and not snippet:
@@ -795,6 +922,90 @@ def _parse_llm_output(
     return results
 
 
+# Presence-check fields whose parsed_value should reflect explicit denials
+# found in the source snippet. The list is intentionally TIGHT -- generic
+# tokens like "registration" or "certificate" would over-match (e.g. a
+# bidder's GST registration field whose retrieved chunk happens to also
+# contain ISO denial text).  Add a specific token only when you have
+# verified the denial-override semantics for that criterion.
+_DENIAL_CHECK_KEY_HINTS = (
+    "iso", "iso_9001", "iso_14001", "iso_45001",
+    "epf", "esi", "pf_registration", "pf_esi",
+    "labour_law_compliance", "labour_compliance",
+)
+
+# Unambiguous denial phrases. Any hit forces the parsed_value to the denial
+# verbatim so the evaluator's FAIL signals catch it.  Keep this list tight --
+# false positives here would penalise compliant bidders.
+_SNIPPET_DENIAL_PATTERNS = (
+    "does not hold",           "do not hold",
+    "not yet allotted",        "not yet been allotted",
+    "not yet issued",          "not yet been issued",
+    "not yet certified",       "not yet registered",
+    "not currently certified", "not currently registered",
+    "not held",                "not hold",
+    "not registered",
+    "no valid certificate",    "no certification",
+    "certification status: not",
+    "status: not held",        "status: not registered",
+    "registration status: not",
+    "application pending",     "under process",
+    "pending since",
+)
+
+
+def _apply_denial_override(
+    *,
+    field_name: str,
+    parsed_value: Any,
+    not_found: bool,
+    snippet: str | None,
+    retrieved_chunks: Optional[List[str]] = None,
+) -> tuple[Any, bool, Optional[str]]:
+    """If the retrieved text explicitly denies a mandatory cert/registration,
+    replace the LLM's parsed_value with the denial verbatim so the evaluator
+    fails it.  Only runs for fields that look like presence/compliance checks.
+    Returns (parsed_value, not_found, snippet) -- snippet may be rewritten to
+    a ~200-char window around the matched denial so audit evidence is useful.
+    """
+    key = (field_name or "").lower()
+    if not any(h in key for h in _DENIAL_CHECK_KEY_HINTS):
+        return parsed_value, not_found, snippet
+    # Ignore blacklisting: "is NOT blacklisted" is a COMPLIANT declaration.
+    if "blacklist" in key or "debar" in key:
+        return parsed_value, not_found, snippet
+
+    # Search the LLM-returned snippet first (fast path), then fall back to
+    # the full retrieved chunks so truncated snippets don't hide denials.
+    haystacks: List[tuple[str, str]] = []
+    if snippet and isinstance(snippet, str):
+        haystacks.append(("snippet", snippet))
+    if retrieved_chunks:
+        haystacks.append(("chunk", "\n\n".join(retrieved_chunks)))
+
+    for source, hay in haystacks:
+        hay_lower = hay.lower()
+        for phrase in _SNIPPET_DENIAL_PATTERNS:
+            idx = hay_lower.find(phrase)
+            if idx == -1:
+                continue
+            # Build a readable evidence window around the match (up to 200 chars).
+            window_start = max(0, idx - 80)
+            window_end   = min(len(hay), idx + len(phrase) + 80)
+            evidence     = hay[window_start:window_end].strip()
+            logger.info(
+                "Denial override applied",
+                field=field_name,
+                phrase=phrase,
+                source=source,
+                original_parsed=parsed_value,
+            )
+            # Return the denial phrase as parsed_value so evaluator FAILs it,
+            # and surface the surrounding text as the audit snippet.
+            return phrase, False, evidence[:200]
+    return parsed_value, not_found, snippet
+
+
 # ---------------------------------------------------------------------------
 # Tender criteria extraction
 # ---------------------------------------------------------------------------
@@ -805,15 +1016,32 @@ Extract all eligibility criteria from the provided tender document text.
 RULES:
 1. Return ONLY valid JSON. No explanation outside JSON.
 2. Identify EVERY eligibility criterion, no matter how minor.
-3. Distinguish mandatory (shall/must/essential) from preferred (should/preferred/desirable).
+   You MUST include compliance / certification / integrity criteria as
+   SEPARATE entries when they are presented in distinct sections of the
+   tender, even if they share an operator. Examples that always become
+   their own criterion when present in the tender:
+       - GST registration              -> id="gst_registration"
+       - ISO 9001 / ISO 14001 / etc.   -> id="iso_9001_certification"
+       - EPF / ESI registration        -> id="epf_esi_registration"
+       - Not blacklisted / debarred    -> id="not_blacklisted"
+       - PAN / TAN / Trade licence     -> id="<respective>_registration"
+       - Bid security / EMD            -> id="bid_security"
+       - Performance security          -> id="performance_security"
+3. Distinguish mandatory (shall/must/essential/MANDATORY) from preferred
+   (should/preferred/desirable).
 4. For numeric thresholds: extract the number and unit separately.
    - Turnover thresholds: express in Crore INR (e.g., "5 Crore" -> threshold_value=5, threshold_unit="crore INR")
    - Project thresholds: express as count (e.g., "3 similar works" -> threshold_value=3, threshold_unit="projects")
 5. For time windows: extract in years (e.g., "last 5 years" -> 5).
 6. Set operator:
    - "gte" for minimum thresholds (turnover >= X, at least N projects)
-   - "contains" for presence checks (GST registered, ISO certified)
-7. If a criterion has no clear numeric threshold, set threshold_value=null and ambiguous=true ONLY if truly unclear.
+   - "lte" for upper bounds
+   - "contains" for presence / certification / declaration checks
+     (GST registered, ISO certified, EPF/ESI registered, not blacklisted)
+7. Set threshold_value=null for `contains` criteria. Set
+   ambiguous=true ONLY if the threshold is truly unclear -- never set
+   ambiguous=true merely because the criterion is a certification or
+   declaration.
 """
 
 
@@ -845,10 +1073,14 @@ async def extract_tender_criteria(tender_text: str) -> Dict[str, Any]:
         "IMPORTANT:\n"
         "- For turnover criteria: threshold_value in Crore (e.g., 5 Crore = 5, NOT 5000000)\n"
         "- For project count: threshold_value = count (e.g., '3 similar works' = 3)\n"
-        "- For certifications (GST, ISO, EPF): threshold_value=null, operator='contains', mandatory=true\n"
+        "- For certifications (GST, ISO, EPF/ESI, blacklisting): "
+        "threshold_value=null, operator='contains', mandatory=true\n"
+        "- Each separately documented compliance / certification / integrity\n"
+        "  criterion (B.3 GST, B.4 ISO, B.5 EPF/ESI, B.6 blacklisting, etc.)\n"
+        "  MUST appear as its own JSON entry. Do NOT merge them.\n"
         "- Set ambiguous=false for all standard criteria unless truly uninterpretable\n"
         "- Do NOT set ambiguous=true just because the criterion is for a certification\n\n"
-        "TENDER DOCUMENT:\n" + tender_text[:8000]
+        "TENDER DOCUMENT:\n" + tender_text[:24000]
     )
 
     async with httpx.AsyncClient() as client:
