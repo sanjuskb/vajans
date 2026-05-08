@@ -40,7 +40,8 @@ class ReviewAction(Base):
         index=True,
     )
     reviewer_action: Mapped[ReviewerAction] = mapped_column(
-        SAEnum(ReviewerAction, name="revieweraction", create_type=True),
+        SAEnum(ReviewerAction, name="revieweraction", create_type=True,
+               values_callable=lambda x: [e.value for e in x]),
         nullable=False,
     )
     original_value: Mapped[str | None] = mapped_column(Text, nullable=True)

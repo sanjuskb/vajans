@@ -61,7 +61,8 @@ class ReviewQueueEntry(Base):
     )
 
     status: Mapped[ReviewQueueStatus] = mapped_column(
-        SAEnum(ReviewQueueStatus, name="reviewqueuestatus", create_type=True),
+        SAEnum(ReviewQueueStatus, name="reviewqueuestatus", create_type=True,
+               values_callable=lambda x: [e.value for e in x]),
         nullable=False,
         default=ReviewQueueStatus.PENDING,
         index=True,

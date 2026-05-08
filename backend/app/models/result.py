@@ -147,7 +147,8 @@ class Result(Base):
     )
     bidder_name:     Mapped[str]               = mapped_column(String(255), nullable=False)
     overall_verdict: Mapped[EvaluationVerdict]  = mapped_column(
-        SAEnum(EvaluationVerdict, name="evaluationverdict", create_type=True),
+        SAEnum(EvaluationVerdict, name="evaluationverdict", create_type=True,
+               values_callable=lambda x: [e.value for e in x]),
         nullable=False,
         index=True,
     )
@@ -163,7 +164,8 @@ class Result(Base):
 
     trust_score:   Mapped[float | None]     = mapped_column(Float, nullable=True)
     trust_level:   Mapped[TrustLevel | None] = mapped_column(
-        SAEnum(TrustLevel, name="trustlevel", create_type=True), nullable=True
+        SAEnum(TrustLevel, name="trustlevel", create_type=True,
+               values_callable=lambda x: [e.value for e in x]), nullable=True
     )
     trust_breakdown_json: Mapped[dict | None] = mapped_column(
         "trust_breakdown", JSONB, nullable=True

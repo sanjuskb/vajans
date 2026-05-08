@@ -30,7 +30,8 @@ class AuditLog(Base):
         index=True,
     )
     action: Mapped[AuditAction] = mapped_column(
-        SAEnum(AuditAction, name="auditaction", create_type=True),
+        SAEnum(AuditAction, name="auditaction", create_type=True,
+               values_callable=lambda x: [e.value for e in x]),
         nullable=False,
         index=True,
     )

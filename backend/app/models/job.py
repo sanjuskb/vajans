@@ -23,7 +23,8 @@ class Job(Base):
     )
     title: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     status: Mapped[JobStatus] = mapped_column(
-        SAEnum(JobStatus, name="jobstatus", create_type=True),
+        SAEnum(JobStatus, name="jobstatus", create_type=True,
+               values_callable=lambda x: [e.value for e in x]),
         nullable=False,
         default=JobStatus.PENDING,
         index=True,

@@ -28,12 +28,14 @@ class File(Base):
     )
     original_name: Mapped[str] = mapped_column(String(512), nullable=False)
     file_type: Mapped[FileType] = mapped_column(
-        SAEnum(FileType, name="filetype", create_type=True),
+        SAEnum(FileType, name="filetype", create_type=True,
+               values_callable=lambda x: [e.value for e in x]),
         nullable=False,
         index=True,
     )
     status: Mapped[FileStatus] = mapped_column(
-        SAEnum(FileStatus, name="filestatus", create_type=True),
+        SAEnum(FileStatus, name="filestatus", create_type=True,
+               values_callable=lambda x: [e.value for e in x]),
         nullable=False,
         default=FileStatus.UPLOADED,
         index=True,
